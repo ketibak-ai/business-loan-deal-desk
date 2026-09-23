@@ -1,0 +1,32 @@
+name: Agent eval (live Claude API)
+
+# Manual only: calls the Claude API and costs money. Requires repo secret ANTHROPIC_API_KEY.
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: Claude model id
+        default: claude-opus-5
+
+permissions:
+  contents: read
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+      - name: Run agent eval
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEALDESK_MODEL: ${{ inputs.model }}
+        run: python evals/agent_eval.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: agent-eval-results
+          path: evals/results/

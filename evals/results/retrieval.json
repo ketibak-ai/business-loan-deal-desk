@@ -1,0 +1,251 @@
+{
+  "summary": {
+    "cases": 22,
+    "hit@1": 0.909,
+    "hit@3": 1.0
+  },
+  "rows": [
+    {
+      "query": "What is the difference between the interest rate and APR?",
+      "expected": "Interest Rate and APR",
+      "retrieved": [
+        "Term Sheet Glossary \u00a7 Interest Rate and APR",
+        "Loan Negotiation Playbook \u00a7 Using a Competing Offer",
+        "Loan Negotiation Playbook \u00a7 Negotiate the Whole Deal"
+      ],
+      "hit@1": true,
+      "hit@3": true
+    },
+    {
+      "query": "Why is my balloon payment so large?",
+      "expected": "Amortization, Term and Balloon",
+      "retrieved": [
+        "Term Sheet Glossary \u00a7 Amortization, Term and Balloon",
+        "Business Loan Types Guide \u00a7 Commercial Real Estate Loans",
+        "SBA Loan Programs \u00a7 Why Banks Use the SBA Guarantee"
+      ],
+      "hit@1": true,
+      "hit@3": true
+    },
+    {
+      "query": "How do banks decide the lowest rate they can accept?",
+      "expected": "Pricing Floors",
+      "retrieved": [
+        "How Banks Price Business Loans \u00a7 Pricing Floors",
+        "How Banks Price Business Loans \u00a7 Capital and the Hurdle Rate",
+        "How Banks Price Business Loans \u00a7 Relationship Pricing"
+      ],
+      "hit@1": true,
+      "hit@3": true
+    },
+    {
+      "query": "Why does moving my operating deposits get me a better rate?",
+      "expected": "Relationship Pricing",
+      "retrieved": [
+        "How Banks Price Business Loans \u00a7 Relationship Pricing",
+        "Loan Negotiation Playbook \u00a7 Using Deposits and Treasury Services",
+        "SBA Loan Programs \u00a7 SBA Eligibility"
+      ],
+      "hit@1": true,
+      "hit@3": true
+    },
+    {
+      "query": "Is Prime plus 1 a good deal compared with SOFR pricing?",
+      "expected": "Cost of Funds",
+      "retrieved": [
+        "How Banks Price Business Loans \u00a7 Cost of Funds",
+        "Term Sheet Glossary \u00a7 Index and Spread",
+        "SBA Loan Programs \u00a7 SBA 7(a) Rates and Fees"
+      ],
+      "hit@1": true,
+      "hit@3": true
+    },
+    {
+      "query": "What hurdle rate do banks use for return on capital?",
+      "expected": "Capital and the Hurdle Rate",
+      "retrieved": [
+        "How Banks Price Business Loans \u00a7 Capital and the Hurdle Rate",
+        "SBA Loan Programs \u00a7 Why Banks Use the SBA Guarantee",
+        "Business Loan Types Guide \u00a7 Choosing the Right Loan"
+      ],
+      "hit@1": true,
+      "hit@3": true
+    },
+    {
+      "query": "How much does the SBA guarantee on a 7(a) loan?",
+      "expected": "SBA 7(a) Basics",
+      "retrieved": [
+        "SBA Loan Programs \u00a7 SBA 7(a) Rates and Fees",
+        "SBA Loan Programs \u00a7 SBA 7(a) Basics",
+        "SBA Loan Programs \u00a7 Why Banks Use the SBA Guarantee"
+      ],
+      "hit@1": false,
+      "hit@3": true
+    },
+    {
+      "query": "What fees does an SBA 7(a) loan charge?",
+      "expected": "SBA 7(a) Rates and Fees",
+      "retrieved": [
+        "SBA Loan Programs \u00a7 SBA 7(a) Rates and Fees",
+        "SBA Loan Programs \u00a7 SBA 7(a) Basics",
+        "SBA Loan Programs \u00a7 Why Banks Use the SBA Guarantee"
+      ],
+      "hit@1": true,
+      "hit@3": true
+    },
+    {
+      "query": "How does the SBA 504 program split the financing?",
+      "expected": "SBA 504 Loans",
+      "retrieved": [
+        "SBA Loan Programs \u00a7 SBA 504 Loans",
+        "SBA Loan Programs \u00a7 SBA 7(a) Basics",
+        "SBA Loan Programs \u00a7 SBA Eligibility"
+      ],
+      "hit@1": true,
+      "hit@3": true
+    },
+    {
+      "query": "Is a merchant cash advance with a 1.35 factor rate expensive?",
+      "expected": "Merchant Cash Advances",
+      "retrieved": [
+        "Business Loan Types Guide \u00a7 Merchant Cash Advances",
+        "Business Loan Types Guide \u00a7 Invoice and Receivables Financing",
+        "Covenants, Guarantees and Borrower Protections \u00a7 Prepayment Penalties"
+      ],
+      "hit@1": true,
+      "hit@3": true
+    },
+    {
+      "query": "Should I use a line of credit or a term loan for inventory?",
+      "expected": "Choosing the Right Loan",
+      "retrieved": [
+        "Business Loan Types Guide \u00a7 Choosing the Right Loan",
+        "Business Loan Types Guide \u00a7 Lines of Credit",
+        "Term Sheet Glossary \u00a7 Unused Fee"
+      ],
+      "hit@1": true,
+      "hit@3": true
+    },
+    {
+      "query": "What unused commitment fee should I expect on a revolver?",
+      "expected": "Lines of Credit",
+      "retrieved": [
+        "Loan Negotiation Playbook \u00a7 Fee Negotiation",
+        "Business Loan Types Guide \u00a7 Lines of Credit",
+        "Term Sheet Glossary \u00a7 Unused Fee"
+      ],
+      "hit@1": false,
+      "hit@3": true
+    },
+    {
+      "query": "How should I use a competing term sheet?",
+      "expected": "Using a Competing Offer",
+      "retrieved": [
+        "Loan Negotiation Playbook \u00a7 Using a Competing Offer",
+        "Business Loan Types Guide \u00a7 Choosing the Right Loan",
+        "Business Loan Types Guide \u00a7 Term Loans"
+      ],
+      "hit@1": true,
+      "hit@3": true
+    },
+    {
+      "query": "Can I get the origination fee waived?",
+      "expected": "Fee Negotiation",
+      "retrieved": [
+        "Loan Negotiation Playbook \u00a7 Fee Negotiation",
+        "SBA Loan Programs \u00a7 SBA 7(a) Rates and Fees",
+        "Term Sheet Glossary \u00a7 Unused Fee"
+      ],
+      "hit@1": true,
+      "hit@3": true
+    },
+    {
+      "query": "When should I walk away from a loan offer?",
+      "expected": "When to Walk Away",
+      "retrieved": [
+        "Loan Negotiation Playbook \u00a7 When to Walk Away",
+        "Loan Negotiation Playbook \u00a7 Prepare Before You Negotiate",
+        "Term Sheet Glossary \u00a7 Amortization, Term and Balloon"
+      ],
+      "hit@1": true,
+      "hit@3": true
+    },
+    {
+      "query": "What happens if I break a DSCR covenant?",
+      "expected": "Financial Covenants",
+      "retrieved": [
+        "Covenants, Guarantees and Borrower Protections \u00a7 Financial Covenants",
+        "Loan Negotiation Playbook \u00a7 Using a Competing Offer",
+        "Covenants, Guarantees and Borrower Protections \u00a7 Reporting Requirements"
+      ],
+      "hit@1": true,
+      "hit@3": true
+    },
+    {
+      "query": "How much covenant headroom do I need?",
+      "expected": "Covenant Headroom",
+      "retrieved": [
+        "Covenants, Guarantees and Borrower Protections \u00a7 Covenant Headroom",
+        "Loan Negotiation Playbook \u00a7 Negotiate the Whole Deal",
+        "SBA Loan Programs \u00a7 Why Banks Use the SBA Guarantee"
+      ],
+      "hit@1": true,
+      "hit@3": true
+    },
+    {
+      "query": "Can a personal guarantee be capped or released?",
+      "expected": "Personal Guarantees",
+      "retrieved": [
+        "Covenants, Guarantees and Borrower Protections \u00a7 Personal Guarantees",
+        "Loan Negotiation Playbook \u00a7 Negotiate the Whole Deal",
+        "Covenants, Guarantees and Borrower Protections \u00a7 Collateral and Liens"
+      ],
+      "hit@1": true,
+      "hit@3": true
+    },
+    {
+      "query": "Is yield maintenance worse than a step-down prepayment penalty?",
+      "expected": "Prepayment Penalties",
+      "retrieved": [
+        "Covenants, Guarantees and Borrower Protections \u00a7 Prepayment Penalties",
+        "Loan Negotiation Playbook \u00a7 Negotiate the Whole Deal",
+        "Business Loan Types Guide \u00a7 Commercial Real Estate Loans"
+      ],
+      "hit@1": true,
+      "hit@3": true
+    },
+    {
+      "query": "What does debt service coverage ratio mean?",
+      "expected": "Debt Service Coverage Ratio",
+      "retrieved": [
+        "Term Sheet Glossary \u00a7 Debt Service Coverage Ratio",
+        "Covenants, Guarantees and Borrower Protections \u00a7 Financial Covenants",
+        "Business Loan Types Guide \u00a7 Term Loans"
+      ],
+      "hit@1": true,
+      "hit@3": true
+    },
+    {
+      "query": "What is expected loss and how does collateral change it?",
+      "expected": "Expected Loss",
+      "retrieved": [
+        "How Banks Price Business Loans \u00a7 Expected Loss",
+        "SBA Loan Programs \u00a7 Why Banks Use the SBA Guarantee",
+        "How Banks Price Business Loans \u00a7 Pricing Floors"
+      ],
+      "hit@1": true,
+      "hit@3": true
+    },
+    {
+      "query": "What is a compensating balance?",
+      "expected": "Compensating Balance",
+      "retrieved": [
+        "Term Sheet Glossary \u00a7 Compensating Balance",
+        "Covenants, Guarantees and Borrower Protections \u00a7 Prepayment Penalties",
+        "Covenants, Guarantees and Borrower Protections \u00a7 Reporting Requirements"
+      ],
+      "hit@1": true,
+      "hit@3": true
+    }
+  ]
+}

@@ -1,0 +1,90 @@
+{
+  "loan": {
+    "product": "term",
+    "lender": "First Harbor Bank",
+    "amount": 1200000,
+    "termY": 5,
+    "amortY": 7,
+    "index": "sofr",
+    "spreadBps": 325,
+    "utilPct": 40,
+    "unusedBps": 25,
+    "mcaFactor": 1.35,
+    "mcaMonths": 9,
+    "origPct": 1.0,
+    "closingCost": 7500,
+    "annualFee": 0,
+    "sbaFeePct": 2.5,
+    "prepay": "step",
+    "covDSCR": 1.25
+  },
+  "biz": {
+    "name": "Cedar & Pine Millwork",
+    "industry": "mfg",
+    "years": 12,
+    "revenue": 6200000,
+    "ebitda": 850000,
+    "existingDebt": 900000,
+    "existingDS": 240000,
+    "fico": 735,
+    "pg": true,
+    "collType": "blanket",
+    "collValue": 1400000,
+    "deposits": 150000,
+    "depositRate": 0.25,
+    "treasuryFees": 4000
+  },
+  "mkt": {
+    "sofr": 3.65,
+    "prime": 6.75,
+    "ust5": 3.75
+  },
+  "assume": {
+    "hurdle": 12,
+    "tax": 24,
+    "capRate": 3.85,
+    "liqBps": 25,
+    "opexBps": 45,
+    "fixedCost": 4000,
+    "runoff": 25,
+    "minCap": 10
+  },
+  "lev": {
+    "moreDeposits": 400000,
+    "moreTreasury": 9000,
+    "competeRate": 6.6,
+    "competeName": "Lakeside Community Bank"
+  },
+  "offers": [
+    {
+      "name": "First Harbor Bank",
+      "amount": 1200000,
+      "rate": 6.9,
+      "termY": 5,
+      "amortY": 7,
+      "origPct": 1.0,
+      "closing": 7500,
+      "annualFee": 0
+    },
+    {
+      "name": "Lakeside Community Bank",
+      "amount": 1200000,
+      "rate": 6.6,
+      "termY": 5,
+      "amortY": 7,
+      "origPct": 1.5,
+      "closing": 9000,
+      "annualFee": 1500
+    },
+    {
+      "name": "Online lender",
+      "amount": 1200000,
+      "rate": 9.75,
+      "termY": 3,
+      "amortY": 3,
+      "origPct": 3.0,
+      "closing": 0,
+      "annualFee": 0
+    }
+  ]
+}
