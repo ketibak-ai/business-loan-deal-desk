@@ -186,6 +186,67 @@ def test_mca_has_no_bank_view():
     assert _run(apply_product_defaults(example(), "mca"))["bank"] == {"na": True}
 
 
+# ---- small business vs commercial tiers ----------------------------------------------------------
+def _small_biz():
+    s = example()
+    s["loan"]["amount"] = 300000
+    s["biz"].update(revenue=2000000, ebitda=350000, existingDebt=100000, existingDS=30000, collValue=400000)
+    return s
+
+
+def test_tier_is_chosen_by_size_and_can_be_overridden():
+    assert engine.tier_of(example()) == "commercial"  # $6.2M revenue
+    assert engine.tier_of(_small_biz()) == "small"
+    s = _small_biz()
+    s["biz"]["tier"] = "commercial"
+    assert engine.tier_of(s) == "commercial"
+
+
+def test_small_tier_uses_scorecard_band_and_retail_capital():
+    b = engine.run(_small_biz())["bank"]
+    assert b["tier"] == "small" and b["rr"]["rating"] in "ABCDE"
+    assert b["rr"]["pd"] == dict((x[0], x[2]) for x in engine.SCORE_BANDS)[b["rr"]["rating"]]
+    assert b["K"] == pytest.approx(engine.irb_retail_k(b["rr"]["pd"], b["lgd"]))
+
+
+def test_retail_capital_is_below_corporate_for_same_risk():
+    assert engine.irb_retail_k(0.02, 0.45) < engine.irb_k(0.02, 0.45, 2.5)
+
+
+def test_sme_size_adjustment_lowers_corporate_capital():
+    assert engine.irb_k(0.01, 0.45, 2.5, size_adj=0.04) < engine.irb_k(0.01, 0.45, 2.5)
+
+
+def test_small_risk_weight_drives_regulatory_capital():
+    s = _small_biz()
+    full = engine.run(s)["bank"]["ecReg"]
+    s["assume"]["smallRW"] = 75
+    assert engine.run(s)["bank"]["ecReg"] == pytest.approx(full * 0.75)
+
+
+def test_small_tier_room_is_capped_by_banker_discretion():
+    s = _small_biz()
+    b = engine.run(s)["bank"]
+    assert b["room"] * 100 > 50  # the model has more room than a banker can give
+    assert b["negotiable"] * 100 == pytest.approx(50)
+    assert b["landing"] == pytest.approx(b["offered"] - 0.25)
+    assert all(x["bps"] <= 50 + 1e-9 for x in engine.levers(s) if x["id"] != "competing_offer")
+
+
+def test_commercial_tier_room_is_the_full_economic_room():
+    b = engine.run(example())["bank"]
+    assert b["negotiable"] == pytest.approx(b["room"])
+
+
+def test_better_owner_credit_improves_small_business_band():
+    s = _small_biz()
+    s["biz"]["fico"] = 640
+    weak = engine.run(s)["bank"]
+    s["biz"]["fico"] = 790
+    strong = engine.run(s)["bank"]
+    assert strong["rr"]["score"] > weak["rr"]["score"] and strong["rr"]["pd"] < weak["rr"]["pd"]
+
+
 # ---- engine 4: levers -------------------------------------------------------------------------
 def test_levers_move_the_floor_the_right_way():
     s = example()

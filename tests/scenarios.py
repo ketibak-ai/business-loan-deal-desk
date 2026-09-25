@@ -33,5 +33,15 @@ def all_scenarios() -> list[tuple[str, dict]]:
         ("shock-up-200", _variant(mkt__shockBps=200)),
         ("line-shock-down", _variant("loc", mkt__shockBps=-100)),
         ("fixed-no-curve", _variant("equip", mkt__useCurve=False)),
+        ("small-auto", _variant(loan__amount=300000, biz__revenue=2000000, biz__ebitda=350000,
+                                biz__existingDebt=100000, biz__existingDS=30000, biz__collValue=400000)),
+        ("small-forced-example", _variant(biz__tier="small")),
+        ("commercial-forced-small", _variant(loan__amount=300000, biz__revenue=2000000, biz__ebitda=350000,
+                                             biz__existingDebt=100000, biz__existingDS=30000, biz__tier="commercial")),
+        ("small-sba-weak", _variant("sba7a", loan__amount=250000, biz__revenue=1500000, biz__ebitda=160000,
+                                    biz__existingDebt=0, biz__existingDS=0, biz__fico=655, biz__years=1.5,
+                                    biz__collType="none", biz__collValue=0)),
+        ("small-line-tight-grid", _variant("loc", loan__amount=400000, biz__revenue=3000000, biz__ebitda=300000,
+                                           biz__existingDebt=200000, biz__existingDS=50000, assume__discretionBps=25)),
     ]
     return out

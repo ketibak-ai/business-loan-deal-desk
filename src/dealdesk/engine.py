@@ -27,6 +27,9 @@ from .config import (
     PG_LGD_BENEFIT,
     PRODUCTS,
     REVOLVER_CCF,
+    SCORE_BANDS,
+    SMALL_MAX_EXPOSURE,
+    SMALL_MAX_REVENUE,
     TREASURY_MARGIN,
     UNSECURED_LGD,
 )
@@ -99,14 +102,24 @@ def ninv(p: float) -> float:
     return -_horner(_C, q) / _horner([*_D, 1], q)
 
 
-def irb_k(pd: float, lgd: float, m: float) -> float:
-    """Basel IRB corporate capital requirement K per $1 of exposure (99.9% confidence)."""
+def irb_k(pd: float, lgd: float, m: float, size_adj: float = 0.0) -> float:
+    """Basel IRB corporate capital requirement K per $1 of exposure (99.9% confidence).
+    size_adj is the SME firm-size reduction to the asset correlation."""
     pd = min(max(pd, 0.0003), 0.9999)
     e = (1 - math.exp(-50 * pd)) / (1 - math.exp(-50))
-    r = 0.12 * e + 0.24 * (1 - e)
+    r = 0.12 * e + 0.24 * (1 - e) - size_adj
     b = (0.11852 - 0.05478 * math.log(pd)) ** 2
     k = (lgd * ncdf((ninv(pd) + math.sqrt(r) * 3.090232) / math.sqrt(1 - r)) - pd * lgd) \
         * (1 + (m - 2.5) * b) / (1 - 1.5 * b)
+    return max(k, 0.0)
+
+
+def irb_retail_k(pd: float, lgd: float) -> float:
+    """Basel IRB "other retail" K: small-business exposures managed as a pool (lower correlation, no maturity)."""
+    pd = min(max(pd, 0.0003), 0.9999)
+    e = (1 - math.exp(-35 * pd)) / (1 - math.exp(-35))
+    r = 0.03 * e + 0.16 * (1 - e)
+    k = lgd * ncdf((ninv(pd) + math.sqrt(r) * 3.090232) / math.sqrt(1 - r)) - pd * lgd
     return max(k, 0.0)
 
 
@@ -347,6 +360,42 @@ def eligibility(s: dict, cap: dict) -> list[dict]:
 
 
 # ---- engine 3: the bank's view ---------------------------------------------------------------
+def tier_of(s: dict) -> str:
+    """Which pricing model a bank would use: small business (scorecard, pooled PD, rate grid) or commercial."""
+    b = s["biz"]
+    if b.get("tier") in ("small", "commercial"):
+        return b["tier"]
+    small = b["revenue"] <= SMALL_MAX_REVENUE and b["existingDebt"] + s["loan"]["amount"] <= SMALL_MAX_EXPOSURE
+    return "small" if small else "commercial"
+
+
+def credit_score(s: dict, cap: dict) -> dict:
+    """Small-business scorecard (0-100): owner credit weighs most. Maps to a band with a pooled PD."""
+    b, drivers = s["biz"], []
+    sc = 60
+
+    def push(name: str, val: str, delta: int) -> None:
+        nonlocal sc
+        sc += delta
+        drivers.append({"name": name, "val": val, "delta": delta})
+
+    f = b["fico"]
+    push("Owner credit score", f"{f:g}", 20 if f >= 780 else 12 if f >= 740 else 5 if f >= 700 else -5 if f >= 660
+         else -15 if f >= 620 else -25)
+    y = b["years"]
+    push("Years in business", f"{y:g} yrs", 8 if y >= 10 else 4 if y >= 5 else 0 if y >= 2 else -10)
+    d = cap["dscr"]
+    push("Debt service coverage", x2(d), 10 if d >= 1.75 else 5 if d >= 1.35 else 0 if d >= 1.2 else -10 if d >= 1
+         else -20)
+    lev = cap["lev"]
+    push("Debt to EBITDA", x2(lev), 3 if lev <= 2 else 0 if lev <= 3.5 else -8)
+    name, notch = INDUSTRIES[b["industry"]]
+    push("Industry risk", name, -5 * notch)
+    score = min(100, max(0, sc))
+    band = next(x for x in SCORE_BANDS if score >= x[1])
+    return {"rating": band[0], "score": score, "pd": band[2], "drivers": drivers}
+
+
 def risk_rating(s: dict, cap: dict) -> dict:
     b, drivers = s["biz"], []
     r = 6  # small and mid-size businesses start below investment grade
@@ -388,8 +437,10 @@ def bank_view(s: dict, sch: dict) -> dict:
     p = PRODUCTS[loan["product"]]
     if p.get("mca"):
         return {"na": True}
+    tier = tier_of(s)
+    small = tier == "small"
     cap = capacity(s, sch)
-    rr = risk_rating(s, cap)
+    rr = credit_score(s, cap) if small else risk_rating(s, cap)
     lgd = loss_given_default(s)
     # floating loans (SOFR or Prime) are funded at SOFR; fixed loans at the matched-maturity swap rate off the curve
     idx = index_rate(s, loan["index"])
@@ -404,12 +455,16 @@ def bank_view(s: dict, sch: dict) -> dict:
     ead = drawn + REVOLVER_CCF * (loan["amount"] - drawn) if p.get("rev") else loan["amount"]
     g = sba_guarantee(loan)
     m = min(5, max(1, loan["termY"]))
-    k = irb_k(rr["pd"], lgd, m)
+    s5 = min(50, max(5, b["revenue"] / 1e6))
+    size_adj = 0.04 * (1 - (s5 - 5) / 45)
+    k = irb_retail_k(rr["pd"], lgd) if small else irb_k(rr["pd"], lgd, m, size_adj)
+    rw = a["smallRW"] / 100 if small else 1
     ec_irb = EC_MULTIPLIER * k * ead * (1 - g) + GOV_GUARANTEE_CAPITAL * ead * g
-    ec_reg = a["minCap"] / 100 * ead * (1 - g) + GOV_GUARANTEE_CAPITAL * ead * g
+    ec_reg = a["minCap"] / 100 * rw * ead * (1 - g) + GOV_GUARANTEE_CAPITAL * ead * g
     ec = max(ec_irb, ec_reg)  # banks price to the higher of economic and regulatory capital
     el = rr["pd"] * lgd * ead * (1 - g)
-    opex = a["opexBps"] / 1e4 * ead + a["fixedCost"]
+    # scorecard lending is automated, so a small-business loan carries a lower fixed cost than a commercial one
+    opex = a["opexBps"] / 1e4 * ead + (a["fixedCostSmall"] if small else a["fixedCost"])
     fees = loan["amount"] * loan["origPct"] / 100 / max(1, loan["termY"]) + loan["annualFee"] \
         + (loan["unusedBps"] / 1e4 * (loan["amount"] - drawn) if p.get("rev") else 0.0)
     nii_req = h * ec / (1 - t) - cr * ec + opex + el
@@ -433,13 +488,20 @@ def bank_view(s: dict, sch: dict) -> dict:
         return ((nii_at(rate) + (rel_inc if rel else 0.0)) - opex - el + cr * ec) * (1 - t) / ec * 100
 
     room = offered - walkaway
-    return {"na": False, "cap": cap, "rr": rr, "lgd": lgd, "idx": idx, "cof": cof, "liq": liq, "drawn": drawn,
-            "ead": ead, "g": g, "K": k, "EC": ec, "ecIRB": ec_irb, "ecReg": ec_reg, "EL": el, "opex": opex,
-            "fees": fees, "niiReq": nii_req, "depVal": dep_val, "tsVal": ts_val, "relInc": rel_inc,
+    # small-business loans are priced off a rate grid: bankers can usually discount only a limited amount
+    if small:
+        negotiable = min(max(0.0, room), a["discretionBps"] / 100)
+        opening, landing = offered - negotiable, offered - negotiable / 2
+    else:
+        negotiable = max(0.0, room)
+        opening, landing = walkaway + negotiable * 0.25, walkaway + negotiable * 0.5
+    return {"na": False, "tier": tier, "cap": cap, "rr": rr, "lgd": lgd, "idx": idx, "cof": cof, "liq": liq,
+            "drawn": drawn, "ead": ead, "g": g, "K": k, "EC": ec, "ecIRB": ec_irb, "ecReg": ec_reg, "EL": el,
+            "opex": opex, "fees": fees, "niiReq": nii_req, "depVal": dep_val, "tsVal": ts_val, "relInc": rel_inc,
             "standalone": standalone, "relFloor": rel_floor, "costFloor": cost_floor, "walkaway": walkaway,
             "offered": offered, "room": room, "rarocStand": raroc(offered, False),
-            "rarocRel": raroc(offered, True), "opening": walkaway + max(0.0, room) * 0.25,
-            "landing": walkaway + max(0.0, room) * 0.5, "revenueAtOffer": nii_at(offered)}
+            "rarocRel": raroc(offered, True), "negotiable": negotiable, "opening": opening, "landing": landing,
+            "revenueAtOffer": nii_at(offered)}
 
 
 def run(s: dict) -> dict:
@@ -461,11 +523,14 @@ def levers(s: dict, res: dict | None = None) -> list[dict]:
     def worth(d: float) -> float:
         return max(0.0, d) / 1e4 * avg_bal * yrs
 
+    # on the small-business rate grid a concession is limited by the banker's discretion
+    cap_bps = s["assume"]["discretionBps"] if base["tier"] == "small" else math.inf
+
     def try_mod(fn) -> tuple[dict, float]:
         t = copy.deepcopy(s)
         fn(t)
         r = run(t)
-        return r, (base["walkaway"] - r["bank"]["walkaway"]) * 100
+        return r, min(cap_bps, (base["walkaway"] - r["bank"]["walkaway"]) * 100)
 
     lev = s["lev"]
     if lev["moreDeposits"] > 0:

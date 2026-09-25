@@ -53,6 +53,8 @@ const GROUPS=[
     {p:'biz.existingDS',label:'Existing debt payments',type:'money',step:1000,hint:'Per year, all loans and leases'},
     {p:'biz.collType',label:'Collateral you can pledge',type:'select',options:Object.entries(COLLATERAL).map(([k,v])=>[k,v[0]]),wide:true},
     {p:'biz.collValue',label:'Collateral value',type:'money',step:5000},
+    {p:'biz.tier',label:'Bank segment',type:'select',wide:true,hint:'How the bank prices you. Auto: small business if revenue ≤ $5M and total debt ≤ $1.5M',
+      options:[['auto','Auto (by size)'],['small','Small business: scorecard and rate grid'],['commercial','Commercial: risk rating and economic capital']]},
     {p:'biz.pg',label:'Owner will sign a personal guarantee',type:'bool'},
   ]},
   {title:'What you could bring the bank',lede:'Business besides the loan that lowers the rate the bank needs.',fields:[
@@ -71,9 +73,12 @@ const ASSUME_FIELDS=[
   {p:'assume.tax',label:'Bank tax rate',type:'num',suf:'%',step:1},
   {p:'assume.liqBps',label:'Liquidity premium',type:'num',suf:'bps',step:5},
   {p:'assume.opexBps',label:'Servicing cost',type:'num',suf:'bps',step:5},
-  {p:'assume.fixedCost',label:'Fixed cost per loan',type:'money',step:250,hint:'Per year'},
+  {p:'assume.fixedCost',label:'Fixed cost per loan',type:'money',step:250,hint:'Per year, commercial loans'},
+  {p:'assume.fixedCostSmall',label:'Fixed cost, small business',type:'money',step:250,hint:'Per year; scorecard lending is automated'},
   {p:'assume.runoff',label:'Deposit run-off',type:'num',suf:'%',step:5},
   {p:'assume.capRate',label:'Credit on capital',type:'num',suf:'%',step:.05},
+  {p:'assume.smallRW',label:'Small-business risk weight',type:'num',suf:'%',step:5,hint:'US rules 100%; Basel retail SME 75%'},
+  {p:'assume.discretionBps',label:'Small-business banker discretion',type:'num',suf:'bps',step:5,hint:'How far a banker can move off the rate grid'},
   {p:'assume.minCap',label:'Minimum capital held',type:'num',suf:'%',step:.5,hint:'Regulatory capital per $ of loan'},
 ];
 const tenorLabel=t=>t<1?Math.round(t*12)+' mo':t+' yr';
@@ -134,7 +139,7 @@ function renderKPIs(R){
     ['True cost (APR)',pct(sch.apr),mca?'no stated rate':'stated rate '+pct(sch.rate)],
     ['DSCR after loan',x2(cap.dscr),cap.dscr>=1.25?'banks want 1.25x or more':'below the usual 1.25x'],
     ['Bank walk-away (est.)',bank.na?'n/a':pct(bank.walkaway),bank.na?'not a bank product':'lowest rate they likely take'],
-    ['Room to negotiate',bank.na?'—':(bank.room>0?bps(bank.room*100):'little'),bank.na?'compare with a bank loan':(bank.room>0?'≈ '+moneyShort(bank.room/100*sch.avgBal*S.loan.termY)+' over the term':'push on fees and terms')]
+    ['Room to negotiate',bank.na?'—':(bank.negotiable>0?bps(bank.negotiable*100):'little'),bank.na?'compare with a bank loan':(bank.negotiable>0?'≈ '+moneyShort(bank.negotiable/100*sch.avgBal*S.loan.termY)+' over the term':'push on fees and terms')]
   ];
   $('#kpis').innerHTML=k.map((x,i)=>`<div class="kpi${i===4?' zone':''}"><div class="lab">${x[0]}</div><div class="val">${x[1]}</div><div class="sub">${x[2]}</div></div>`).join('');
 }
@@ -301,12 +306,13 @@ function renderBank(R){
   const lo=Math.min(...uniq.map(p=>p.v))-.4,hi=Math.max(...uniq.map(p=>p.v))+.4,pos=v=>(v-lo)/(hi-lo)*100;
   const sorted=[...uniq].sort((a,c)=>a.v-c.v);const slots=['dn','up','dn2','up2','dn','up'];
   const ladder=`<div class="ladder" aria-label="Rate ladder"><div class="track">
-    ${b.room>0?`<div class="zoneband" style="left:${pos(b.walkaway)}%;width:${pos(b.offered)-pos(b.walkaway)}%" title="Negotiation zone"></div>`:''}
+    ${b.negotiable>0?`<div class="zoneband" style="left:${pos(b.offered-b.negotiable)}%;width:${pos(b.offered)-pos(b.offered-b.negotiable)}%" title="Negotiation zone"></div>`:''}
     ${sorted.map((p,i)=>{const x=pos(p.v),edge=x<8?' edge-l':x>92?' edge-r':'';return `<div class="tick ${p.cls}" style="left:${x}%"></div><div class="lbl ${slots[i]}${edge}" style="left:${x}%">${p.lbl}<b style="${p.k==='offer'?'color:var(--accent-ink)':''}">${pct(p.v)}</b></div>`}).join('')}
   </div></div>`;
   const rr=b.rr,spreadOf=v=>Math.round((v-b.idx)*100);
   $('#view-bank').innerHTML=`
-  <div class="card"><h2>The bank's side of your deal</h2>
+  <div class="card"><div class="row" style="justify-content:space-between"><h2>The bank's side of your deal</h2><span class="pill info">${b.tier==='small'?'Small business segment':'Commercial segment'}</span></div>
+    <p class="small muted" style="margin:4px 0 10px">${b.tier==='small'?'Priced like a small-business loan: a credit scorecard sets a band with a pooled default rate, capital follows retail rules, and the rate comes from a grid that bankers can adjust only a little.':'Priced like a commercial loan: an analyst-style risk rating, economic capital for this specific deal, and relationship pricing with more room to negotiate.'} ${S.biz.tier==='auto'?'Chosen automatically from your revenue and total debt. You can change it under Your business.':''}</p>
     <p class="lede">Banks price a loan to earn a target return on the capital it uses, usually around ${S.assume.hurdle}%. This estimates the rates the bank is working with. The <b style="color:var(--zone-ink)">striped band</b> is the room between the offer and the lowest rate the bank would likely accept.</p>
     ${ladder}
     <div class="tablewrap"><table><thead><tr><th>Rate</th><th class="r">All-in</th><th class="r">Spread</th><th>What it means</th></tr></thead><tbody>
@@ -315,13 +321,13 @@ function renderBank(R){
       <tr class="hl"><td><b>Walk-away (est.)</b></td><td class="r num"><b>${pct(b.walkaway)}</b></td><td class="r num"><b>${spreadOf(b.walkaway)} bps</b></td><td class="small">${b.relFloor>=b.costFloor?'The hurdle counting the deposits and services you bring. Below this, the bank earns less than its target.':'Covers funding, expected loss and servicing costs. Banks rarely go below it.'}</td></tr>
       <tr><td>Cost floor</td><td class="r num">${pct(b.costFloor)}</td><td class="r num">${spreadOf(b.costFloor)} bps</td><td class="small">Funding + liquidity + expected loss + servicing. Below this, the bank loses money.</td></tr>
     </tbody></table></div>
-    <div class="callout ${b.room>0?'zone':'bad'}" style="margin-top:14px">${b.room>0
-      ?`The bank's estimated return at the offered rate is <b>${pct(b.rarocStand,1)}</b> on the loan alone and <b>${pct(b.rarocRel,1)}</b> counting your deposits and services, against a ${S.assume.hurdle}% hurdle. There is about <b>${bps(b.room*100)}</b> of room. A reasonable opening ask is <b>${pct(b.opening)}</b> (${spreadOf(b.opening)} bps). A realistic outcome is around <b>${pct(b.landing)}</b>.`
+    <div class="callout ${b.negotiable>0?'zone':'bad'}" style="margin-top:14px">${b.negotiable>0
+      ?`The bank's estimated return at the offered rate is <b>${pct(b.rarocStand,1)}</b> on the loan alone and <b>${pct(b.rarocRel,1)}</b> counting your deposits and services, against a ${S.assume.hurdle}% hurdle. ${b.tier==='small'&&b.room>b.negotiable?`The bank's model has about ${bps(b.room*100)} of room, but small-business loans are priced from a rate grid and a banker can usually move only about <b>${bps(b.negotiable*100)}</b> without an exception.`:`There is about <b>${bps(b.negotiable*100)}</b> of room.`} A reasonable opening ask is <b>${pct(b.opening)}</b> (${spreadOf(b.opening)} bps). A realistic outcome is around <b>${pct(b.landing)}</b>.`
       :`The offer is already at or below the estimated walk-away rate (the bank's return is about ${pct(b.rarocRel,1)}). Pushing on rate probably will not work. Focus on fees, covenants, the prepayment penalty and the personal guarantee.`}</div></div>
   <div class="two">
-    <div class="card"><h3>Your estimated risk rating: ${rr.rating} of 10</h3><p class="small muted" style="margin:4px 0 10px">1 is strongest. Implied probability of default: ${pct(rr.pd*100,2)} a year. The bank's loss if you default: ${pct(b.lgd*100,0)} of the balance${b.g?`, before the SBA guarantee covers ${pct(b.g*100,0)}`:''}.</p>
+    <div class="card">${b.tier==='small'?`<h3>Your estimated credit score: ${rr.score} (band ${rr.rating})</h3><p class="small muted" style="margin:4px 0 10px">Small-business loans are scored, not individually rated. Band ${rr.rating} carries a pooled default rate of ${pct(rr.pd*100,1)} a year (bands run A to E).`:`<h3>Your estimated risk rating: ${rr.rating} of 10</h3><p class="small muted" style="margin:4px 0 10px">1 is strongest. Implied probability of default: ${pct(rr.pd*100,2)} a year.`} The bank's loss if you default: ${pct(b.lgd*100,0)} of the balance${b.g?`, before the SBA guarantee covers ${pct(b.g*100,0)}`:''}.</p>
       <table><thead><tr><th>Driver</th><th>You</th><th class="r">Effect</th></tr></thead><tbody>
-      ${rr.drivers.map(d=>`<tr><td>${d.name}</td><td class="num">${esc(d.val)}</td><td class="r"><span class="pill ${d.delta<0?'good':d.delta>0?'bad':'info'}">${d.delta<0?'Helps':d.delta>0?'Hurts':'Neutral'}</span></td></tr>`).join('')}
+      ${rr.drivers.map(d=>`<tr><td>${d.name}</td><td class="num">${esc(d.val)}</td><td class="r"><span class="pill ${(b.tier==='small'?-d.delta:d.delta)<0?'good':(b.tier==='small'?-d.delta:d.delta)>0?'bad':'info'}">${(b.tier==='small'?-d.delta:d.delta)<0?'Helps':(b.tier==='small'?-d.delta:d.delta)>0?'Hurts':'Neutral'}</span></td></tr>`).join('')}
       </tbody></table></div>
     <div class="card"><h3>The bank's numbers at the offered rate (year 1)</h3>
       <table><tbody>
@@ -357,7 +363,7 @@ function renderNegotiate(R){
     $('#neg-levers').innerHTML='';$('#brief').textContent=briefText(R,[]);return}
   const lv=levers(S,R),yrs=L.termY;
   const saveLand=Math.max(0,b.offered-b.landing)/100*sch.avgBal*yrs;
-  $('#neg-top').innerHTML=`<h2>${b.room>0?`About ${bps(b.room*100)} of room on rate`:'Rate is near the floor. Negotiate the terms instead.'}</h2>
+  $('#neg-top').innerHTML=`<h2>${b.negotiable>0?`About ${bps(b.negotiable*100)} of room on rate`:'Rate is near the floor. Negotiate the terms instead.'}</h2>
     <div class="stats" style="margin-top:12px">
       <div class="stat"><div class="lab">Offered</div><div class="val">${pct(b.offered)}</div><div class="sub">${Math.round((b.offered-b.idx)*100)} bps spread</div></div>
       <div class="stat" style="background:var(--zone-soft)"><div class="lab">Opening ask</div><div class="val">${pct(b.opening)}</div><div class="sub">${Math.round((b.opening-b.idx)*100)} bps spread</div></div>
@@ -380,7 +386,7 @@ function briefText(R,lv){
   lines.push('');
   if(b.na){lines.push('WHAT WE ARE ASKING',`- A term loan or line of credit to replace an MCA priced at ${pct(sch.apr,0)} APR`);return lines.join('\n')}
   lines.push('WHAT WE ARE ASKING');
-  if(b.room>0)lines.push(`- Rate: ${INDEXES[L.index].split(' ')[0]} + ${Math.round((b.opening-b.idx)*100)} bps (offered: + ${L.spreadBps} bps)`);
+  if(b.negotiable>0)lines.push(`- Rate: ${INDEXES[L.index].split(' ')[0]} + ${Math.round((b.opening-b.idx)*100)} bps (offered: + ${L.spreadBps} bps)`);
   else lines.push(`- Rate: we accept the offered spread of ${L.spreadBps} bps, subject to the terms below`);
   lv.filter(l=>l.kind==='fee').forEach(l=>lines.push('- '+l.ask));
   lv.filter(l=>l.kind==='terms').forEach(l=>lines.push('- '+l.ask));

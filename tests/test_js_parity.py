@@ -31,6 +31,7 @@ def _approx(v):
 def test_reference_data_matches(js):
     c = js["constants"]
     assert c["PD_BY_RATING"] == config.PD_BY_RATING
+    assert c["SCORE_BANDS"] == config.SCORE_BANDS
     assert c["EXAMPLE"] == config.EXAMPLE
     assert {k: list(v) for k, v in config.INDUSTRIES.items()} == c["INDUSTRIES"]
     assert {k: list(v) for k, v in config.COLLATERAL.items()} == c["COLLATERAL"]
@@ -57,8 +58,9 @@ def test_scenario_matches(js, i):
     else:
         b = r["bank"]
         assert got["bank"]["rating"] == b["rr"]["rating"]
+        assert got["bank"]["tier"] == b["tier"]
         for k in ("lgd", "EC", "EL", "standalone", "relFloor", "costFloor", "walkaway", "cof",
-                  "rarocStand", "rarocRel"):
+                  "rarocStand", "rarocRel", "negotiable", "opening", "landing"):
             assert got["bank"][k] == _approx(b[k]), f"bank.{k}"
     lv = engine.levers(s, r)
     assert [x[0] for x in got["levers"]] == [x["id"] for x in lv]

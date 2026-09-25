@@ -42,6 +42,9 @@
   const INDEXES = {sofr:"SOFR (floating)", prime:"Prime (floating)", ust5:"5-yr Treasury (fixed)"};
   const PREPAY = {none:"None", step:"Step-down (e.g. 3-2-1%)", ym:"Yield maintenance / make-whole"};
   const PD_BY_RATING = [null,0.0003,0.0006,0.0015,0.003,0.005,0.009,0.016,0.035,0.07,0.15];
+  // Small-business ("business banking") scorecard bands: [band, minimum score, pooled one-year PD]
+  const SCORE_BANDS = [["A",85,0.006],["B",75,0.012],["C",65,0.022],["D",55,0.04],["E",0,0.08]];
+  const SMALL_MAX_REVENUE = 5000000, SMALL_MAX_EXPOSURE = 1500000;
   const DSCR_MIN = 1.25, LEVERAGE_MAX = 3.5, REVOLVER_CCF = 0.75, EC_MULTIPLIER = 1.06,
         GOV_GUARANTEE_CAPITAL = 0.016, TREASURY_MARGIN = 0.45, UNSECURED_LGD = 0.45, PG_LGD_BENEFIT = 0.03;
 
@@ -50,11 +53,11 @@
           utilPct:40, unusedBps:25, mcaFactor:1.35, mcaMonths:9, origPct:1.0, closingCost:7500, annualFee:0,
           sbaFeePct:2.5, prepay:"step", covDSCR:1.25},
     biz:{name:"Cedar & Pine Millwork", industry:"mfg", years:12, revenue:6200000, ebitda:850000, existingDebt:900000,
-         existingDS:240000, fico:735, pg:true, collType:"blanket", collValue:1400000,
+         existingDS:240000, fico:735, pg:true, tier:"auto", collType:"blanket", collValue:1400000,
          deposits:150000, depositRate:0.25, treasuryFees:4000},
     mkt:{sofr:3.65, prime:6.75, ust5:3.75, useCurve:true, shockBps:0,
          curve:[{t:0.5,r:3.55},{t:1,r:3.50},{t:2,r:3.55},{t:3,r:3.65},{t:5,r:3.85},{t:7,r:4.00},{t:10,r:4.15}]},
-    assume:{hurdle:12, tax:24, capRate:3.85, liqBps:25, opexBps:45, fixedCost:4000, runoff:25, minCap:10},
+    assume:{hurdle:12, tax:24, capRate:3.85, liqBps:25, opexBps:45, fixedCost:4000, runoff:25, minCap:10, smallRW:100, discretionBps:50, fixedCostSmall:1500},
     lev:{moreDeposits:400000, moreTreasury:9000, competeRate:6.60, competeName:"Lakeside Community Bank"},
     offers:[
       {name:"First Harbor Bank", amount:1200000, rate:6.90, termY:5, amortY:7, origPct:1.0, closing:7500, annualFee:0},
@@ -115,11 +118,19 @@
     q = Math.sqrt(-2 * Math.log(1 - p));
     return -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1);
   }
-  function irbK(pd, lgd, M) {
+  // Basel IRB corporate K; sizeAdj is the SME firm-size reduction to the asset correlation
+  function irbK(pd, lgd, M, sizeAdj = 0) {
     pd = Math.min(Math.max(pd, 0.0003), 0.9999);
-    const e = (1 - Math.exp(-50 * pd)) / (1 - Math.exp(-50)), R = 0.12 * e + 0.24 * (1 - e);
+    const e = (1 - Math.exp(-50 * pd)) / (1 - Math.exp(-50)), R = 0.12 * e + 0.24 * (1 - e) - sizeAdj;
     const b = Math.pow(0.11852 - 0.05478 * Math.log(pd), 2);
     const k = (lgd * ncdf((ninv(pd) + Math.sqrt(R) * 3.090232) / Math.sqrt(1 - R)) - pd * lgd) * (1 + (M - 2.5) * b) / (1 - 1.5 * b);
+    return Math.max(k, 0);
+  }
+  // Basel IRB "other retail" K (small-business exposures managed as a pool): lower correlation, no maturity term
+  function irbRetailK(pd, lgd) {
+    pd = Math.min(Math.max(pd, 0.0003), 0.9999);
+    const e = (1 - Math.exp(-35 * pd)) / (1 - Math.exp(-35)), R = 0.03 * e + 0.16 * (1 - e);
+    const k = lgd * ncdf((ninv(pd) + Math.sqrt(R) * 3.090232) / Math.sqrt(1 - R)) - pd * lgd;
     return Math.max(k, 0);
   }
   // Periodic IRR by bisection: net = sum cf_t / (1+i)^t, t = 1..n
@@ -262,6 +273,24 @@
   /* ============================================================
      ENGINE 3: the bank's view (mirror of a bank RAROC pricing model)
      ============================================================ */
+  // Which pricing model a bank would use: small business (scorecard, pooled PD, rate grid) or commercial
+  function tierOf(s) {
+    const B = s.biz;
+    if (B.tier === "small" || B.tier === "commercial") return B.tier;
+    return B.revenue <= SMALL_MAX_REVENUE && B.existingDebt + s.loan.amount <= SMALL_MAX_EXPOSURE ? "small" : "commercial";
+  }
+  function creditScore(s, cap) {
+    const B = s.biz, drivers = []; let sc = 60;
+    const push = (name, val, delta) => { sc += delta; drivers.push({name, val, delta}); };
+    const f = B.fico; push("Owner credit score", String(f), f >= 780 ? 20 : f >= 740 ? 12 : f >= 700 ? 5 : f >= 660 ? -5 : f >= 620 ? -15 : -25);
+    push("Years in business", B.years + " yrs", B.years >= 10 ? 8 : B.years >= 5 ? 4 : B.years >= 2 ? 0 : -10);
+    const d = cap.dscr; push("Debt service coverage", x2(d), d >= 1.75 ? 10 : d >= 1.35 ? 5 : d >= 1.2 ? 0 : d >= 1 ? -10 : -20);
+    const l = cap.lev; push("Debt to EBITDA", x2(l), l <= 2 ? 3 : l <= 3.5 ? 0 : -8);
+    const ind = INDUSTRIES[B.industry]; push("Industry risk", ind[0], -5 * ind[1]);
+    const score = Math.min(100, Math.max(0, sc));
+    const band = SCORE_BANDS.find(b => score >= b[1]);
+    return {rating:band[0], score, pd:band[2], drivers};
+  }
   function riskRating(s, cap) {
     const B = s.biz, drivers = []; let r = 6; // small and mid-size businesses start below investment grade
     const push = (name, val, delta) => { r += delta; drivers.push({name, val, delta}); };
@@ -284,7 +313,8 @@
   function bankView(s, sch) {
     const L = s.loan, B = s.biz, A = s.assume, P = PRODUCTS[L.product];
     if (P.mca) return {na:true};
-    const cap = capacity(s, sch), rr = riskRating(s, cap), lgd = lossGivenDefault(s);
+    const tier = tierOf(s), small = tier === "small";
+    const cap = capacity(s, sch), rr = small ? creditScore(s, cap) : riskRating(s, cap), lgd = lossGivenDefault(s);
     // Floating loans (SOFR or Prime) are funded at SOFR; fixed loans at the matched-maturity swap rate off the curve
     const idx = indexRate(s, L.index);
     const cof = L.index === "prime" ? s.mkt.sofr : L.index === "ust5" && s.mkt.useCurve ? swapRate(s, L.termY) : idx;
@@ -292,12 +322,15 @@
     const drawn = Math.max(1, P.rev ? L.amount * L.utilPct / 100 : L.amount);
     const ead = P.rev ? drawn + REVOLVER_CCF * (L.amount - drawn) : L.amount;
     const g = sbaGuarPct(L), M = Math.min(5, Math.max(1, L.termY));
-    const K = irbK(rr.pd, lgd, M);
+    const S5 = Math.min(50, Math.max(5, B.revenue / 1e6)), sizeAdj = 0.04 * (1 - (S5 - 5) / 45);
+    const K = small ? irbRetailK(rr.pd, lgd) : irbK(rr.pd, lgd, M, sizeAdj);
+    const rw = small ? A.smallRW / 100 : 1;
     const ecIRB = EC_MULTIPLIER * K * ead * (1 - g) + GOV_GUARANTEE_CAPITAL * ead * g;
-    const ecReg = A.minCap / 100 * ead * (1 - g) + GOV_GUARANTEE_CAPITAL * ead * g;
+    const ecReg = A.minCap / 100 * rw * ead * (1 - g) + GOV_GUARANTEE_CAPITAL * ead * g;
     const EC = Math.max(ecIRB, ecReg); // banks price to the higher of economic and regulatory capital
     const EL = rr.pd * lgd * ead * (1 - g);
-    const opex = A.opexBps / 1e4 * ead + A.fixedCost;
+    // scorecard lending is automated, so a small-business loan carries a lower fixed cost than a commercial one
+    const opex = A.opexBps / 1e4 * ead + (small ? A.fixedCostSmall : A.fixedCost);
     const fees = L.amount * L.origPct / 100 / Math.max(1, L.termY) + L.annualFee + (P.rev ? L.unusedBps / 1e4 * (L.amount - drawn) : 0);
     const niiReq = h * EC / (1 - t) - cr * EC + opex + EL;
     const depVal = B.deposits * Math.max(0, cof / 100 - B.depositRate / 100) * (1 - A.runoff / 100);
@@ -312,10 +345,14 @@
     const niiAt = rate => (rate - cof - liq) / 100 * drawn + fees;
     const raroc = (rate, rel) => ((niiAt(rate) + (rel ? relInc : 0)) - opex - EL + cr * EC) * (1 - t) / EC * 100;
     const room = offered - walkaway;
-    return {na:false, cap, rr, lgd, idx, cof, liq, drawn, ead, g, K, EC, ecIRB, ecReg, EL, opex, fees, niiReq, depVal, tsVal, relInc,
+    // Small-business loans are priced off a rate grid: bankers can usually discount only a limited amount
+    const negotiable = small ? Math.min(Math.max(0, room), A.discretionBps / 100) : Math.max(0, room);
+    const opening = small ? offered - negotiable : walkaway + negotiable * 0.25;
+    const landing = small ? offered - negotiable / 2 : walkaway + negotiable * 0.5;
+    return {na:false, tier, cap, rr, lgd, idx, cof, liq, drawn, ead, g, K, EC, ecIRB, ecReg, EL, opex, fees, niiReq, depVal, tsVal, relInc,
       standalone, relFloor, costFloor, walkaway, offered, room,
       rarocStand:raroc(offered, false), rarocRel:raroc(offered, true),
-      opening:walkaway + Math.max(0, room) * 0.25, landing:walkaway + Math.max(0, room) * 0.5,
+      negotiable, opening, landing,
       revenueAtOffer:niiAt(offered)};
   }
   function run(s) { const sch = schedule(s), cap = capacity(s, sch), bank = bankView(s, sch); return {sch, cap, bank}; }
@@ -328,7 +365,9 @@
     if (base.na) return out;
     const avgBal = R.sch.avgBal;
     const worth = d => Math.max(0, d) / 1e4 * avgBal * yrs;
-    const tryMod = fn => { const t = clone(s); fn(t); const r = run(t); return {r, dFloor:(base.walkaway - r.bank.walkaway) * 100}; };
+    // on the small-business rate grid a concession is limited by the banker's discretion
+    const capBps = base.tier === "small" ? s.assume.discretionBps : Infinity;
+    const tryMod = fn => { const t = clone(s); fn(t); const r = run(t); return {r, dFloor:Math.min(capBps, (base.walkaway - r.bank.walkaway) * 100)}; };
     if (s.lev.moreDeposits > 0) {
       const m = tryMod(t => { t.biz.deposits += s.lev.moreDeposits; });
       out.push({id:"deposits", kind:"rate", title:"Move operating deposits to this bank",
@@ -429,7 +468,7 @@
     return schedule(t);
   }
 
-  return {PRODUCTS, INDUSTRIES, COLLATERAL, INDEXES, PREPAY, PD_BY_RATING, EXAMPLE, BLANK, clone,
-    money, moneyShort, pct, bps, x2, ncdf, ninv, irbK, irr, indexRate, statedRate, sbaGuarPct, upfrontFees,
+  return {PRODUCTS, INDUSTRIES, COLLATERAL, INDEXES, PREPAY, PD_BY_RATING, SCORE_BANDS, EXAMPLE, BLANK, clone,
+    money, moneyShort, pct, bps, x2, ncdf, ninv, irbK, irbRetailK, irr, tierOf, creditScore, indexRate, statedRate, sbaGuarPct, upfrontFees,
     fwdBase, fwd, pathRate, swapRate, schedule, capacity, eligibility, riskRating, lossGivenDefault, bankView, run, levers, offerSchedule};
 });

@@ -17,7 +17,8 @@ const results = scenarios.map(s => {
     eligibility: E.eligibility(s, R.cap).map(e => [e.k, e.status]),
     bank: R.bank.na ? null : {rating: R.bank.rr.rating, lgd: R.bank.lgd, EC: R.bank.EC, EL: R.bank.EL,
           standalone: R.bank.standalone, relFloor: R.bank.relFloor, costFloor: R.bank.costFloor,
-          walkaway: R.bank.walkaway, cof: R.bank.cof, rarocStand: R.bank.rarocStand, rarocRel: R.bank.rarocRel},
+          walkaway: R.bank.walkaway, cof: R.bank.cof, tier: R.bank.tier,
+          negotiable: R.bank.negotiable, opening: R.bank.opening, landing: R.bank.landing, rarocStand: R.bank.rarocStand, rarocRel: R.bank.rarocRel},
     levers: E.levers(s, R).map(l => [l.id, l.bps, l.dollars]),
     offers: (s.offers || []).map(o => { const x = E.offerSchedule(s, o); return [x.apr, x.payment, x.totalCost]; }),
   };
@@ -25,5 +26,5 @@ const results = scenarios.map(s => {
 });
 
 const constants = {PRODUCTS: E.PRODUCTS, INDUSTRIES: E.INDUSTRIES, COLLATERAL: E.COLLATERAL,
-  PD_BY_RATING: E.PD_BY_RATING, EXAMPLE: E.EXAMPLE};
+  PD_BY_RATING: E.PD_BY_RATING, SCORE_BANDS: E.SCORE_BANDS, EXAMPLE: E.EXAMPLE};
 process.stdout.write(JSON.stringify({results, constants}));

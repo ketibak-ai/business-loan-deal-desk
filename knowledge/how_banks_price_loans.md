@@ -17,3 +17,7 @@ A bank uses several reference rates to decide the lowest rate it can accept on a
 
 ## Fees and Upfront Costs
 Origination fees, unused fees and annual fees are income to the bank and reduce the rate it needs. Closing costs such as legal, appraisal and filing fees usually go to third parties. Fees raise your true cost, so always compare offers by APR, which spreads upfront fees over the life of the loan.
+
+## Small Business versus Commercial Pricing
+Banks price small-business loans and commercial loans with different models. Small-business or business-banking loans, typically for companies under about $5 million in revenue, are scored rather than individually rated: a credit scorecard weighs owner credit, time in business and cash flow, assigns a score band, and each band carries a pooled default rate. Capital follows retail rules, and the rate comes from a pricing grid by band and term, so a banker can usually discount only a limited amount, often around 25 to 50 bps, without an exception. Commercial or middle-market loans get an individual risk rating from a credit analyst, deal-specific economic capital, and relationship pricing, which leaves more room to negotiate. The SBA guarantee can sit on top of either.
+

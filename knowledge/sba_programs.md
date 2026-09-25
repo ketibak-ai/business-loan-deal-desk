@@ -14,3 +14,7 @@ The SBA 504 program finances major fixed assets such as owner-occupied real esta
 
 ## SBA Eligibility
 To qualify, a business generally must be for-profit, operate in the United States, meet SBA size standards and show that it cannot get credit on reasonable terms elsewhere. Owners of 20% or more usually give personal guarantees. Lenders still underwrite repayment ability, typically looking for DSCR of about 1.15x or more and acceptable owner credit.
+
+## SBA Credit Score Requirements
+SBA lenders review the personal credit of every owner of 20% or more, because those owners usually guarantee the loan, along with business credit and cash flow. Until March 1, 2026, 7(a) small loans of $350,000 or less had to pass a FICO Small Business Scoring Service (SBSS) prescreen with a minimum score of 165. Since March 1, 2026, the SBA no longer requires the SBSS score; lenders use generally accepted credit analysis, which can include their own scoring models or SBSS. Many SBA lenders still look for owner personal scores of roughly 650 to 680 or higher, but requirements vary by lender and strong cash flow can offset a weaker score.
+

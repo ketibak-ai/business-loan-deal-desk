@@ -63,6 +63,9 @@ def _flat_schema() -> dict:
         "years_in_business": num, "annual_revenue": num, "ebitda": num, "existing_debt": num,
         "existing_annual_debt_payments": num, "owner_credit_score": num,
         "personal_guarantee": {"type": "boolean"},
+        "bank_segment": {"type": "string", "enum": ["auto", "small", "commercial"],
+                         "description": "small = business banking scorecard and rate grid; commercial = risk rating "
+                                        "and economic capital; auto picks by revenue and total debt"},
         "collateral_type": {"type": "string", "enum": list(COLLATERAL),
                             "description": "; ".join(f"{k} = {v[0]}" for k, v in COLLATERAL.items())},
         "collateral_value": num, "operating_deposits": {**num, "description": "Average balances kept at this bank"},

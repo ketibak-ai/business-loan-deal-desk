@@ -1,7 +1,7 @@
 {
   "summary": {
-    "cases": 22,
-    "hit@1": 0.909,
+    "cases": 24,
+    "hit@1": 0.917,
     "hit@3": 1.0
   },
   "rows": [
@@ -33,7 +33,7 @@
       "retrieved": [
         "How Banks Price Business Loans \u00a7 Pricing Floors",
         "How Banks Price Business Loans \u00a7 Capital and the Hurdle Rate",
-        "How Banks Price Business Loans \u00a7 Relationship Pricing"
+        "Loan Negotiation Playbook \u00a7 Using a Competing Offer"
       ],
       "hit@1": true,
       "hit@3": true
@@ -165,7 +165,7 @@
       "retrieved": [
         "Loan Negotiation Playbook \u00a7 When to Walk Away",
         "Loan Negotiation Playbook \u00a7 Prepare Before You Negotiate",
-        "Term Sheet Glossary \u00a7 Amortization, Term and Balloon"
+        "How Banks Price Business Loans \u00a7 Relationship Pricing"
       ],
       "hit@1": true,
       "hit@3": true
@@ -243,6 +243,28 @@
         "Term Sheet Glossary \u00a7 Compensating Balance",
         "Covenants, Guarantees and Borrower Protections \u00a7 Prepayment Penalties",
         "Covenants, Guarantees and Borrower Protections \u00a7 Reporting Requirements"
+      ],
+      "hit@1": true,
+      "hit@3": true
+    },
+    {
+      "query": "Do banks price a small business loan differently from a commercial loan?",
+      "expected": "Small Business versus Commercial Pricing",
+      "retrieved": [
+        "How Banks Price Business Loans \u00a7 Small Business versus Commercial Pricing",
+        "Business Loan Types Guide \u00a7 Commercial Real Estate Loans",
+        "How Banks Price Business Loans \u00a7 Capital and the Hurdle Rate"
+      ],
+      "hit@1": true,
+      "hit@3": true
+    },
+    {
+      "query": "What credit score do I need for an SBA loan now that SBSS is gone?",
+      "expected": "SBA Credit Score Requirements",
+      "retrieved": [
+        "SBA Loan Programs \u00a7 SBA Credit Score Requirements",
+        "SBA Loan Programs \u00a7 Why Banks Use the SBA Guarantee",
+        "How Banks Price Business Loans \u00a7 Small Business versus Commercial Pricing"
       ],
       "hit@1": true,
       "hit@3": true

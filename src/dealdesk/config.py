@@ -60,6 +60,11 @@ PREPAY = {"none": "None", "step": "Step-down (e.g. 3-2-1%)", "ym": "Yield mainte
 # internal risk rating 1 (best) .. 10 (worst) -> one-year probability of default
 PD_BY_RATING = [None, 0.0003, 0.0006, 0.0015, 0.003, 0.005, 0.009, 0.016, 0.035, 0.07, 0.15]
 
+# small-business ("business banking") scorecard bands: [band, minimum score, pooled one-year PD]
+SCORE_BANDS = [["A", 85, 0.006], ["B", 75, 0.012], ["C", 65, 0.022], ["D", 55, 0.04], ["E", 0, 0.08]]
+SMALL_MAX_REVENUE = 5_000_000     # auto tier: at or below this revenue and exposure -> small business
+SMALL_MAX_EXPOSURE = 1_500_000
+
 DSCR_MIN = 1.25               # typical bank minimum debt service coverage
 LEVERAGE_MAX = 3.5            # typical maximum total debt / EBITDA
 REVOLVER_CCF = 0.75           # share of undrawn commitment counted as exposure
@@ -75,7 +80,7 @@ EXAMPLE: dict = {
              "mcaMonths": 9, "origPct": 1.0, "closingCost": 7500, "annualFee": 0, "sbaFeePct": 2.5,
              "prepay": "step", "covDSCR": 1.25},
     "biz": {"name": "Cedar & Pine Millwork", "industry": "mfg", "years": 12, "revenue": 6200000,
-            "ebitda": 850000, "existingDebt": 900000, "existingDS": 240000, "fico": 735, "pg": True,
+            "ebitda": 850000, "existingDebt": 900000, "existingDS": 240000, "fico": 735, "pg": True, "tier": "auto",
             "collType": "blanket", "collValue": 1400000, "deposits": 150000, "depositRate": 0.25,
             "treasuryFees": 4000},
     # spot rates, plus an illustrative SOFR forward curve (tenor in years -> expected 1-month SOFR, %)
@@ -83,7 +88,8 @@ EXAMPLE: dict = {
             "curve": [{"t": 0.5, "r": 3.55}, {"t": 1, "r": 3.50}, {"t": 2, "r": 3.55}, {"t": 3, "r": 3.65},
                       {"t": 5, "r": 3.85}, {"t": 7, "r": 4.00}, {"t": 10, "r": 4.15}]},
     "assume": {"hurdle": 12, "tax": 24, "capRate": 3.85, "liqBps": 25, "opexBps": 45, "fixedCost": 4000,
-               "runoff": 25, "minCap": 10},
+               "runoff": 25, "minCap": 10, "smallRW": 100, "discretionBps": 50,
+               "fixedCostSmall": 1500},
     "lev": {"moreDeposits": 400000, "moreTreasury": 9000, "competeRate": 6.60,
             "competeName": "Lakeside Community Bank"},
     "offers": [

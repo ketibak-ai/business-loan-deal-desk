@@ -33,6 +33,9 @@ CASES = [
     ("What does debt service coverage ratio mean?", "Debt Service Coverage Ratio"),
     ("What is expected loss and how does collateral change it?", "Expected Loss"),
     ("What is a compensating balance?", "Compensating Balance"),
+    ("Do banks price a small business loan differently from a commercial loan?",
+     "Small Business versus Commercial Pricing"),
+    ("What credit score do I need for an SBA loan now that SBSS is gone?", "SBA Credit Score Requirements"),
 ]
 
 

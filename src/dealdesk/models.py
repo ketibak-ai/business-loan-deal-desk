@@ -51,6 +51,9 @@ class Business(_Strict):
     existingDS: float = Field(0, ge=0, le=1e10)
     fico: float = Field(700, ge=300, le=850)
     pg: bool = True
+    tier: Literal["auto", "small", "commercial"] = Field(
+        "auto", description="Bank segment: small business (scorecard, rate grid) or commercial (risk rating, "
+                            "economic capital). auto picks by revenue and total debt.")
     collType: Collateral = "none"
     collValue: float = Field(0, ge=0, le=1e11)
     deposits: float = Field(0, ge=0, le=1e11)
@@ -82,6 +85,9 @@ class Assumptions(_Strict):
     fixedCost: float = Field(4000, ge=0, le=1e6)
     runoff: float = Field(25, ge=0, le=100)
     minCap: float = Field(10, ge=0, le=50)
+    fixedCostSmall: float = Field(1500, ge=0, le=1e6, description="Fixed yearly cost per small-business loan")
+    smallRW: float = Field(100, ge=0, le=150, description="Risk weight for small-business loans, % (US 100)")
+    discretionBps: float = Field(50, ge=0, le=500, description="Small-business banker pricing discretion, bps")
 
 
 class Levers(_Strict):

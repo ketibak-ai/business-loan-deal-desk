@@ -41,6 +41,14 @@ def test_analyze_example_round_trip():
     assert "TALKING POINTS" in body["talking_points"]
 
 
+def test_small_business_segment_in_api():
+    r = client.post("/api/analyze", json={"loan": {"amount": 250000},
+                                          "biz": {"revenue": 1500000, "ebitda": 250000}}).json()
+    bv = r["bank_view"]
+    assert bv["segment"] == "small" and bv["risk_rating"] in "ABCDE" and bv["credit_score"] is not None
+    assert bv["room_to_negotiate_bps"] <= 50 + 1e-6
+
+
 def test_analyze_partial_scenario_uses_defaults():
     r = client.post("/api/analyze", json={"loan": {"product": "equip", "amount": 300000}})
     assert r.status_code == 200 and r.json()["product"] == "equip"

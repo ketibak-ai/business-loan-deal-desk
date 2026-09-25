@@ -111,8 +111,15 @@ def _bank(b: dict) -> dict:
         return {"applicable": False,
                 "note": "A merchant cash advance is priced by a non-bank funder, not a bank RAROC model."}
     spread = lambda v: (v - b["idx"]) * 100  # noqa: E731
+    small = b["tier"] == "small"
     return {
         "applicable": True,
+        "segment": b["tier"],
+        "method": ("Small business: credit scorecard band with a pooled default rate, Basel retail capital, "
+                   "priced off a rate grid with limited banker discretion" if small else
+                   "Commercial: individual risk rating, economic capital (Basel IRB corporate with maturity and "
+                   "small-firm adjustments), deal-by-deal relationship RAROC"),
+        "credit_score": b["rr"].get("score"),
         "risk_rating": b["rr"]["rating"], "probability_of_default_pct": b["rr"]["pd"] * 100,
         "rating_drivers": b["rr"]["drivers"], "loss_given_default_pct": b["lgd"] * 100,
         "sba_guaranteed_pct": b["g"] * 100,
@@ -122,7 +129,7 @@ def _bank(b: dict) -> dict:
         "spreads_bps": {"offered": spread(b["offered"]), "loan_only_target": spread(b["standalone"]),
                         "walk_away": spread(b["walkaway"]), "cost_floor": spread(b["costFloor"]),
                         "opening_ask": spread(b["opening"]), "realistic_outcome": spread(b["landing"])},
-        "room_to_negotiate_bps": b["room"] * 100,
+        "room_to_negotiate_bps": b["negotiable"] * 100, "economic_room_bps": b["room"] * 100,
         "bank_raroc_at_offer_pct": {"loan_only": b["rarocStand"], "with_relationship": b["rarocRel"]},
         "year1": {"funds_used": b["drawn"], "exposure": b["ead"], "cost_of_funds_pct": b["cof"],
                   "revenue_at_offer": b["revenueAtOffer"], "expected_loss": b["EL"], "servicing_cost": b["opex"],
@@ -196,7 +203,7 @@ _FLAT = {  # agent/CLI argument -> (section, field)
     "industry": ("biz", "industry"), "years_in_business": ("biz", "years"), "annual_revenue": ("biz", "revenue"),
     "ebitda": ("biz", "ebitda"), "existing_debt": ("biz", "existingDebt"),
     "existing_annual_debt_payments": ("biz", "existingDS"), "owner_credit_score": ("biz", "fico"),
-    "personal_guarantee": ("biz", "pg"), "collateral_type": ("biz", "collType"),
+    "personal_guarantee": ("biz", "pg"), "bank_segment": ("biz", "tier"), "collateral_type": ("biz", "collType"),
     "collateral_value": ("biz", "collValue"), "operating_deposits": ("biz", "deposits"),
     "deposit_rate_pct": ("biz", "depositRate"), "treasury_fees": ("biz", "treasuryFees"),
     "extra_deposits_offered": ("lev", "moreDeposits"), "extra_treasury_fees_offered": ("lev", "moreTreasury"),
@@ -244,7 +251,7 @@ def brief(s: dict, res: dict, lv: list[dict]) -> str:
                   f"- A term loan or line of credit to replace an MCA priced at {engine.pct(sch['apr'], 0)} APR"]
         return "\n".join(lines)
     lines.append("WHAT WE ARE ASKING")
-    if b["room"] > 0:
+    if b["negotiable"] > 0:
         lines.append(f"- Rate: {idx_name} + {engine.jround((b['opening'] - b['idx']) * 100)} bps "
                      f"(offered: + {loan['spreadBps']:g} bps)")
     else:
