@@ -141,6 +141,45 @@ def stated_rate(s: dict, loan: dict | None = None) -> float:
     return index_rate(s, loan["index"]) + loan["spreadBps"] / 100
 
 
+def fwd_base(s: dict, t: float) -> float:
+    """Expected 1-month SOFR at t years: spot SOFR at t = 0, then the curve points (linear, flat after the last)."""
+    k = s["mkt"]
+    curve = k.get("curve") or []
+    if not k.get("useCurve") or not curve:
+        return k["sofr"]
+    pts = [(0.0, k["sofr"])] + sorted(((p["t"], p["r"]) for p in curve if p["t"] > 0), key=lambda x: x[0])
+    if t <= 0:
+        return pts[0][1]
+    for i in range(1, len(pts)):
+        if t <= pts[i][0]:
+            (t0, r0), (t1, r1) = pts[i - 1], pts[i]
+            return r0 + (r1 - r0) * (t - t0) / (t1 - t0)
+    return pts[-1][1]
+
+
+def fwd(s: dict, t: float) -> float:
+    return fwd_base(s, t) + (s["mkt"].get("shockBps") or 0) / 100
+
+
+def path_rate(s: dict, loan: dict, m: int) -> float:
+    """All-in rate for month m (1-based). Floating loans reset monthly along the curve; Prime moves with SOFR."""
+    t = (m - 1) / 12
+    if loan["index"] == "sofr":
+        return fwd(s, t) + loan["spreadBps"] / 100
+    if loan["index"] == "prime":
+        return s["mkt"]["prime"] + (fwd(s, t) - s["mkt"]["sofr"]) + loan["spreadBps"] / 100
+    return stated_rate(s, loan)
+
+
+def swap_rate(s: dict, years: float) -> float:
+    """Matched-maturity funding rate for a fixed loan: the average forward over its term (no shock)."""
+    n = max(1, jround(years * 12))
+    a = 0.0
+    for m in range(1, n + 1):
+        a += fwd_base(s, (m - 1) / 12)
+    return a / n
+
+
 def sba_guarantee(loan: dict) -> float:
     if loan["product"] != "sba7a":
         return 0.0
@@ -183,12 +222,12 @@ def schedule(s: dict, loan: dict | None = None) -> dict:
                    firstYearDS=min(total, pay * 252), avgBal=a / 2, months=months, drawn=a)
     elif p.get("rev"):
         rate = stated_rate(s, loan)
-        r = rate / 1200
         t_months = max(1, jround(loan["termY"] * 12))
         drawn = a * loan["utilPct"] / 100
         cfs, ti, tf = [], 0.0, 0.0
         for m in range(1, t_months + 1):
-            interest = drawn * r
+            rm = path_rate(s, loan, m) / 1200
+            interest = drawn * rm
             unused = (a - drawn) * loan["unusedBps"] / 1e4 / 12
             fee = loan["annualFee"] / 12
             pay = interest + unused + fee
@@ -196,23 +235,25 @@ def schedule(s: dict, loan: dict | None = None) -> dict:
             tf += unused + fee
             cfs.append(pay + (drawn if m == t_months else 0.0))
             out["rows"].append({"m": m, "pay": pay, "int": interest, "prin": 0.0, "fee": unused + fee,
-                                "bal": drawn, "start": drawn})
+                                "bal": drawn, "start": drawn, "rate": rm * 1200})
         i = irr(drawn - upfront, cfs)
         first12 = sum(row["pay"] for row in out["rows"][:12])
         out.update(rate=rate, apr=i * 1200, net=drawn - upfront, payment=out["rows"][0]["pay"],
                    totalInterest=ti, totalFees=tf + upfront,
                    firstYearDS=first12 * (12 / min(12, t_months)), avgBal=drawn, months=t_months,
-                   drawn=drawn, balloon=drawn)
+                   drawn=drawn, balloon=drawn, avgRate=ti / (drawn * t_months) * 1200 if drawn > 0 else rate)
     else:
         rate = stated_rate(s, loan)
-        r = rate / 1200
         n = max(1, jround(loan["amortY"] * 12))
         t_months = max(1, jround(min(loan["termY"], loan["amortY"]) * 12))
-        pmt = a * r / (1 - (1 + r) ** -n) if r else a / n
         bal, ti, tf, sum_bal, cfs = a, 0.0, 0.0, 0.0, []
         for m in range(1, t_months + 1):
+            # re-amortize each month over the remaining schedule; for a fixed rate this is the level payment
+            rm = path_rate(s, loan, m) / 1200
+            n_rem = n - (m - 1)
+            pmt = bal * rm / (1 - (1 + rm) ** -n_rem) if rm else bal / n_rem
             start = bal
-            interest = bal * r
+            interest = bal * rm
             prin = min(bal, pmt - interest)
             bal -= prin
             fee = loan["annualFee"] / 12
@@ -226,11 +267,16 @@ def schedule(s: dict, loan: dict | None = None) -> dict:
             cfs.append(cf)
             out["rows"].append({"m": m, "pay": interest + prin + fee, "int": interest, "prin": prin, "fee": fee,
                                 "bal": out["balloon"] if m == t_months and out["balloon"] else bal,
-                                "start": start})
+                                "start": start, "rate": rm * 1200})
         i = irr(a - upfront, cfs)
-        out.update(rate=rate, apr=i * 1200, net=a - upfront, payment=pmt + loan["annualFee"] / 12,
-                   totalInterest=ti, totalFees=tf + upfront, firstYearDS=(pmt + loan["annualFee"] / 12) * 12,
-                   avgBal=sum_bal / t_months, months=t_months, drawn=a)
+        k = min(12, t_months)
+        first = 0.0
+        for row in out["rows"][:k]:
+            first += row["pay"]
+        out.update(rate=rate, apr=i * 1200, net=a - upfront, payment=out["rows"][0]["pay"],
+                   totalInterest=ti, totalFees=tf + upfront, firstYearDS=first * (12 / k),
+                   avgBal=sum_bal / t_months, months=t_months, drawn=a,
+                   avgRate=ti / sum_bal * 1200 if sum_bal > 0 else rate)
     out["totalCost"] = out["totalInterest"] + out["totalFees"]
     return out
 
@@ -345,8 +391,14 @@ def bank_view(s: dict, sch: dict) -> dict:
     cap = capacity(s, sch)
     rr = risk_rating(s, cap)
     lgd = loss_given_default(s)
+    # floating loans (SOFR or Prime) are funded at SOFR; fixed loans at the matched-maturity swap rate off the curve
     idx = index_rate(s, loan["index"])
-    cof = s["mkt"]["sofr"] if loan["index"] == "prime" else idx  # Prime loans are funded at market rates
+    if loan["index"] == "prime":
+        cof = s["mkt"]["sofr"]
+    elif loan["index"] == "ust5" and s["mkt"].get("useCurve"):
+        cof = swap_rate(s, loan["termY"])
+    else:
+        cof = idx
     liq, h, t, cr = a["liqBps"] / 100, a["hurdle"] / 100, a["tax"] / 100, a["capRate"] / 100
     drawn = max(1.0, loan["amount"] * loan["utilPct"] / 100 if p.get("rev") else loan["amount"])
     ead = drawn + REVOLVER_CCF * (loan["amount"] - drawn) if p.get("rev") else loan["amount"]
@@ -508,6 +560,18 @@ def levers(s: dict, res: dict | None = None) -> list[dict]:
                     "why": "This keeps you free to refinance if rates fall or to pay the loan down early. It "
                            "costs the bank little on a floating-rate loan.",
                     "bps": 0.0, "dollars": 0.0})
+    if loan["index"] != "ust5":
+        t = copy.deepcopy(s)
+        t["mkt"]["shockBps"] = (s["mkt"].get("shockBps") or 0) + 100
+        extra = schedule(t)["totalCost"] - res["sch"]["totalCost"]
+        if extra > 0:
+            out.append({"id": "rate_risk", "kind": "terms", "title": "Protect against rising rates",
+                        "ask": "Ask the bank to also quote a fixed rate, or the cost of an interest rate cap or swap, "
+                               "and compare.",
+                        "why": f"This is a floating rate. If SOFR runs 1% above today's curve, the loan costs about "
+                               f"{money(extra)} more over the term. A cap or a fixed rate costs a little more up front "
+                               "and buys certainty.",
+                        "bps": 0.0, "dollars": 0.0})
     cushion = res["cap"]["cushion"]
     if cushion < 0.25:
         out.append({"id": "covenant", "kind": "terms", "title": "Negotiate covenant headroom",

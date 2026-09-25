@@ -72,6 +72,9 @@ def _flat_schema() -> dict:
         "competing_rate_pct": {**num, "description": "All-in rate of a competing offer, if any"},
         "competing_lender": {"type": "string"},
         "sofr_pct": num, "prime_pct": num, "treasury_5y_pct": num,
+        "use_sofr_curve": {"type": "boolean", "description": "Project floating rates along the built-in SOFR "
+                                                            "forward curve (default true)"},
+        "rate_shock_bps": {**num, "description": "Stress test: parallel shift of the SOFR path in bps, e.g. 100"},
     }
     assert set(props) == set(service.FLAT_FIELDS)
     return {"type": "object", "properties": props, "additionalProperties": False}
@@ -85,8 +88,9 @@ TOOLS = [
         "description": "Run the full deal engine on one loan offer. Returns true cost (stated rate, APR, "
                        "payment, fees, balloon), affordability (DSCR, debt/EBITDA, collateral coverage, "
                        "maximum loan by each limit), which loan types fit, and the bank's estimated view "
-                       "(risk rating, loan-only target, walk-away rate, room to negotiate). Omitted loan "
-                       "terms take the product's typical values; omitted business fields take neutral "
+                       "(risk rating, loan-only target, walk-away rate, room to negotiate). Floating loans follow a "
+                       "SOFR forward curve, and rate_sensitivity shows the cost of SOFR moving +/-100 bps. "
+                       "Omitted loan terms take the product's typical values; omitted business fields take neutral "
                        "defaults, so pass everything the user told you.",
         "input_schema": _LOAN_SCHEMA,
     },

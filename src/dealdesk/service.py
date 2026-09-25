@@ -55,18 +55,40 @@ def _yearly(rows: list[dict]) -> list[dict]:
     for r in rows:
         y = (r["m"] - 1) // 12 + 1
         acc = years.setdefault(y, {"year": y, "payments": 0.0, "interest": 0.0, "principal": 0.0,
-                                   "fees": 0.0, "ending_balance": 0.0})
+                                   "fees": 0.0, "ending_balance": 0.0, "_bal": 0.0})
         acc["payments"] += r["pay"]
         acc["interest"] += r["int"]
         acc["principal"] += r["prin"]
         acc["fees"] += r["fee"]
         acc["ending_balance"] = r["bal"]
+        acc["_bal"] += r["start"]
+    for acc in years.values():  # balance-weighted average rate for the year
+        bal = acc.pop("_bal")
+        acc["avg_rate_pct"] = acc["interest"] / bal * 1200 if bal > 0 else None
     return list(years.values())
+
+
+def _rate_sensitivity(s: dict, sch: dict) -> dict | None:
+    """What a parallel move in SOFR does to a floating loan: +/-100 bps versus the base path."""
+    loan = s["loan"]
+    if PRODUCTS[loan["product"]].get("mca") or loan["index"] == "ust5":
+        return None
+    out = {}
+    for shock in (-100, 100):
+        t = copy.deepcopy(s)
+        t["mkt"]["shockBps"] = (s["mkt"].get("shockBps") or 0) + shock
+        x = engine.schedule(t)
+        out[f"{shock:+d}bps"] = {"first_payment": x["payment"], "total_cost": x["totalCost"], "apr_pct": x["apr"],
+                                 "extra_total_cost": x["totalCost"] - sch["totalCost"]}
+    return out
 
 
 def _cost(s: dict, sch: dict) -> dict:
     return {
-        "stated_rate_pct": sch["rate"], "apr_pct": sch["apr"], "monthly_payment": sch["payment"],
+        "stated_rate_pct": sch["rate"], "apr_pct": sch["apr"], "average_rate_pct": sch.get("avgRate"),
+        "rate_type": "fixed" if s["loan"]["index"] == "ust5" else "floating",
+        "uses_sofr_curve": bool(s["mkt"].get("useCurve")), "rate_shock_bps": s["mkt"].get("shockBps") or 0,
+        "rate_sensitivity": _rate_sensitivity(s, sch), "monthly_payment": sch["payment"],
         "daily_payment": sch.get("daily"), "cash_received": sch["net"], "upfront_fees": sch["upfront"],
         "total_interest": sch["totalInterest"], "total_fees": sch["totalFees"], "total_cost": sch["totalCost"],
         "balloon": sch["balloon"], "months": sch["months"], "average_balance": sch["avgBal"],
@@ -180,6 +202,7 @@ _FLAT = {  # agent/CLI argument -> (section, field)
     "extra_deposits_offered": ("lev", "moreDeposits"), "extra_treasury_fees_offered": ("lev", "moreTreasury"),
     "competing_rate_pct": ("lev", "competeRate"), "competing_lender": ("lev", "competeName"),
     "sofr_pct": ("mkt", "sofr"), "prime_pct": ("mkt", "prime"), "treasury_5y_pct": ("mkt", "ust5"),
+    "use_sofr_curve": ("mkt", "useCurve"), "rate_shock_bps": ("mkt", "shockBps"),
 }
 FLAT_FIELDS = tuple(_FLAT)
 

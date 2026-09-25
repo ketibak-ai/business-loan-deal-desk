@@ -29,5 +29,9 @@ def all_scenarios() -> list[tuple[str, dict]]:
         ("zero-fee-no-compete", _variant(loan__origPct=0, loan__closingCost=0, lev__competeRate=0,
                                          lev__moreDeposits=0, lev__moreTreasury=0)),
         ("mca-short", _variant("mca", loan__mcaMonths=6, loan__mcaFactor=1.25)),
+        ("flat-rates", _variant(mkt__useCurve=False)),
+        ("shock-up-200", _variant(mkt__shockBps=200)),
+        ("line-shock-down", _variant("loc", mkt__shockBps=-100)),
+        ("fixed-no-curve", _variant("equip", mkt__useCurve=False)),
     ]
     return out

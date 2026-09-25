@@ -58,10 +58,19 @@ class Business(_Strict):
     treasuryFees: float = Field(0, ge=0, le=1e8)
 
 
+class CurvePoint(_Strict):
+    t: float = Field(..., gt=0, le=40, description="Tenor in years")
+    r: float = Field(..., ge=-2, le=25, description="Expected 1-month SOFR at that tenor, %")
+
+
 class Market(_Strict):
-    sofr: float = Field(_E["mkt"]["sofr"], ge=-2, le=25)
+    sofr: float = Field(_E["mkt"]["sofr"], ge=-2, le=25, description="Spot SOFR, %")
     prime: float = Field(_E["mkt"]["prime"], ge=0, le=30)
     ust5: float = Field(_E["mkt"]["ust5"], ge=-2, le=25)
+    useCurve: bool = Field(True, description="Project floating rates along the SOFR forward curve")
+    shockBps: float = Field(0, ge=-500, le=1000, description="Parallel shift applied to the SOFR path")
+    curve: list[CurvePoint] = Field(default_factory=lambda: [CurvePoint(**p) for p in _E["mkt"]["curve"]],
+                                    max_length=30)
 
 
 class Assumptions(_Strict):

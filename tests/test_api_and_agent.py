@@ -26,6 +26,8 @@ def test_request_id_header_propagates():
 def test_web_app_is_served():
     r = client.get("/")
     assert r.status_code == 200 and "Deal Desk" in r.text
+    assert r.text.startswith("<!doctype html>") and 'name="viewport"' in r.text  # standards mode, mobile-ready
+    assert r.text.index("</head>") < r.text.index('<div class="wrap">')
     assert client.get("/engine.js").status_code == 200
 
 

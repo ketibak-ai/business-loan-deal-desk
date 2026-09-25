@@ -65,6 +65,8 @@ const ASSUME_FIELDS=[
   {p:'mkt.sofr',label:'SOFR',type:'num',suf:'%',step:.05},
   {p:'mkt.prime',label:'Prime rate',type:'num',suf:'%',step:.05},
   {p:'mkt.ust5',label:'5-yr Treasury',type:'num',suf:'%',step:.05},
+  {p:'mkt.shockBps',label:'Rate shock',type:'num',suf:'bps',step:25,min:-500,hint:'Stress test: shifts the whole SOFR path'},
+  {p:'mkt.useCurve',label:'Project floating rates along the SOFR forward curve',type:'bool'},
   {p:'assume.hurdle',label:'Bank hurdle (RAROC)',type:'num',suf:'%',step:.5},
   {p:'assume.tax',label:'Bank tax rate',type:'num',suf:'%',step:1},
   {p:'assume.liqBps',label:'Liquidity premium',type:'num',suf:'bps',step:5},
@@ -74,6 +76,9 @@ const ASSUME_FIELDS=[
   {p:'assume.capRate',label:'Credit on capital',type:'num',suf:'%',step:.05},
   {p:'assume.minCap',label:'Minimum capital held',type:'num',suf:'%',step:.5,hint:'Regulatory capital per $ of loan'},
 ];
+const tenorLabel=t=>t<1?Math.round(t*12)+' mo':t+' yr';
+const curveFields=()=>(S.mkt.curve||[]).map((pt,i)=>({p:`mkt.curve.${i}.r`,label:'SOFR in '+tenorLabel(pt.t),type:'num',suf:'%',step:.05,
+  show:s=>!!s.mkt.useCurve}));
 const getP=(o,p)=>p.split('.').reduce((a,k)=>a?.[k],o);
 const setP=(o,p,v)=>{const ks=p.split('.');let a=o;for(let i=0;i<ks.length-1;i++)a=a[ks[i]];a[ks.at(-1)]=v};
 const fid=p=>'f-'+p.replace(/[.\[\]]/g,'-');
@@ -85,18 +90,22 @@ function fieldHTML(f,obj){
   let ctl;
   if(f.type==='select')ctl=`<select id="${id}" data-p="${f.p}">${f.options.map(([k,l])=>`<option value="${k}" ${k===v?'selected':''}>${esc(l)}</option>`).join('')}</select>`;
   else if(f.type==='text')ctl=`<input type="text" id="${id}" data-p="${f.p}" value="${esc(v)}" autocomplete="off">`;
-  else ctl=`${f.type==='money'?'<span class="aff pre">$</span>':''}<input type="number" inputmode="decimal" id="${id}" data-p="${f.p}" value="${v}" step="${f.step||1}" min="0">${f.suf?`<span class="aff">${f.suf}</span>`:''}`;
+  else ctl=`${f.type==='money'?'<span class="aff pre">$</span>':''}<input type="number" inputmode="decimal" id="${id}" data-p="${f.p}" value="${v}" step="${f.step||1}" min="${f.min??0}">${f.suf?`<span class="aff">${f.suf}</span>`:''}`;
   return `<div class="field${f.wide?' wide':''}" data-p="${f.p}"><label for="${id}">${esc(f.label)}</label><div class="ctl">${ctl}</div>${f.hint?`<small>${esc(f.hint)}</small>`:''}</div>`;
 }
 function renderInputs(){
   const html=GROUPS.map(g=>`<section class="panel"><fieldset class="group"><legend>${g.title}</legend><p class="lede">${g.lede}</p><div class="fields">${g.fields.map(f=>fieldHTML(f,S)).join('')}</div></fieldset></section>`).join('')
-   +`<details class="panel group-d" id="assume-d"><summary>Market rates and bank assumptions</summary><div class="inner"><p class="small muted" style="margin:0 0 12px">These rates are examples, so update them to today's. The bank settings match a typical commercial bank pricing model.</p><div class="fields">${ASSUME_FIELDS.map(f=>fieldHTML(f,S)).join('')}</div></div></details>`;
+   +`<details class="panel group-d" id="assume-d"><summary>Market rates and bank assumptions</summary><div class="inner"><p class="small muted" style="margin:0 0 12px">These rates are examples, so update them to today's. The bank settings match a typical commercial bank pricing model.</p><div class="fields">${ASSUME_FIELDS.map(f=>fieldHTML(f,S)).join('')}</div>
+     <div id="curve-box" style="margin-top:16px"><h3 style="font-size:14.5px;margin:0 0 2px">SOFR forward curve</h3>
+     <p class="small muted" style="margin:0 0 8px">Where the market expects 1-month SOFR to be at each point. Spot SOFR above is today. Floating loans follow this path month by month. Values are examples.</p>
+     <div class="chart" id="curve-chart"></div><div class="fields" style="margin-top:8px">${curveFields().map(f=>fieldHTML(f,S)).join('')}</div></div></div></details>`;
   $('#inputs').innerHTML=html;syncVisibility();
 }
 function syncVisibility(){
-  const all=[...GROUPS.flatMap(g=>g.fields),...ASSUME_FIELDS];
+  const all=[...GROUPS.flatMap(g=>g.fields),...ASSUME_FIELDS,...curveFields()];
   for(const f of all){if(!f.p||!f.show)continue;const el=document.querySelector(`.field[data-p="${f.p}"]`);if(el)el.hidden=!f.show(S)}
   const b=$('#product-blurb');if(b)b.textContent=PRODUCTS[S.loan.product].blurb;
+  const cb=$('#curve-box');if(cb)cb.hidden=!S.mkt.useCurve;
 }
 function readInput(el,obj){
   const p=el.dataset.p;if(!p)return false;
@@ -118,7 +127,8 @@ function applyProductDefaults(k){
    ============================================================ */
 function renderKPIs(R){
   const {sch,cap,bank}=R,mca=isMca(S);
-  const payLab=mca?'Daily payment':(isRev(S)?'Monthly cost (as used)':'Monthly payment');
+  const floating=!mca&&S.loan.index!=='ust5';
+  const payLab=mca?'Daily payment':(isRev(S)?'Monthly cost (as used)':(floating&&S.mkt.useCurve?'First monthly payment':'Monthly payment'));
   const k=[
     [payLab,money(mca?sch.daily:sch.payment),mca?money(sch.payment)+' a month':(sch.balloon>1&&!isRev(S)?'+ '+moneyShort(sch.balloon)+' balloon':'for '+Math.round(sch.months)+' months')],
     ['True cost (APR)',pct(sch.apr),mca?'no stated rate':'stated rate '+pct(sch.rate)],
@@ -140,23 +150,26 @@ function renderTabs(){
 }
 function setTab(k){activeTab=k;document.querySelectorAll('.tab').forEach(b=>b.setAttribute('aria-selected',b.dataset.tab===k));
   document.querySelectorAll('.view').forEach(v=>v.hidden=v.id!=='view-'+k);try{localStorage.setItem(STORE_KEY+'-tab',k)}catch(e){}
-  if(k==='cost')drawAmort(lastR.sch)}
+  if(k==='cost'){drawAmort(lastR.sch);drawRatePath(lastR.sch)}}
 
 /* ---------- Cost ---------- */
 function renderCost(R){
   const {sch}=R,L=S.loan,mca=isMca(S),rev=isRev(S);
-  const years=[];for(const r of sch.rows){const y=Math.ceil(r.m/12);years[y]=years[y]||{y,pay:0,int:0,prin:0,fee:0,bal:0};
-    Object.assign(years[y],{pay:years[y].pay+r.pay,int:years[y].int+r.int,prin:years[y].prin+r.prin,fee:years[y].fee+r.fee,bal:r.bal})}
+  const years=[];for(const r of sch.rows){const y=Math.ceil(r.m/12);years[y]=years[y]||{y,pay:0,int:0,prin:0,fee:0,bal:0,sb:0};
+    Object.assign(years[y],{pay:years[y].pay+r.pay,int:years[y].int+r.int,prin:years[y].prin+r.prin,fee:years[y].fee+r.fee,bal:r.bal,sb:years[y].sb+r.start})}
+  const floating=!mca&&L.index!=='ust5',yrs=years.filter(Boolean),yRate=y=>y.sb>0?y.int/y.sb*1200:NaN;
   let msg;
   if(mca)msg=`You receive ${money(sch.net)} after fees and repay ${money(L.amount*L.mcaFactor)} over about ${L.mcaMonths} months. A factor rate of ${L.mcaFactor} sounds like ${pct((L.mcaFactor-1)*100,0)}, but because you repay daily over a short period, the real annual cost is <b>${pct(sch.apr,1)} APR</b>.`;
   else{const gap=sch.apr-sch.rate;msg=`The stated rate is <b>${pct(sch.rate)}</b> (${INDEXES[L.index].split(' ')[0]} ${pct(indexRate(S,L.index))} + ${L.spreadBps} bps). Fees raise the true cost to <b>${pct(sch.apr)} APR</b>${gap>.005?`, which is ${bps(gap*100)} more`:''}.`;
     if(sch.balloon>1&&!rev)msg+=` Because the payments run over ${L.amortY} years and the loan is due in ${L.termY}, a <b>${money(sch.balloon)} balloon</b> is due at the end. Plan to refinance or pay it off.`;
     if(rev)msg+=` Line costs assume you use ${L.utilPct}% on average, and ${money(sch.drawn)} is repaid when the line ends.`;
-    if(L.index!=='ust5')msg+=' This is a floating rate, so these figures assume the index stays where it is today.';}
+    const shock=S.mkt.shockBps||0,shockTxt=shock?` These figures include a <b>${shock>0?'+':'−'}${Math.abs(shock)} bps rate shock</b>.`:'';
+    if(floating&&S.mkt.useCurve)msg+=` This is a floating rate that follows the SOFR forward curve, so the payment is recalculated each month. The average rate over the term is <b>${pct(sch.avgRate)}</b> (year 1 ${pct(yRate(yrs[0]))}, year ${yrs.length} ${pct(yRate(yrs[yrs.length-1]))}).`+shockTxt;
+    else if(floating)msg+=' This is a floating rate. With the curve turned off, these figures assume SOFR stays where it is today.'+shockTxt;}
   $('#view-cost').innerHTML=`
   <div class="card"><h2>What this loan really costs</h2><p class="lede">${msg}</p>
     <div class="stats">
-      <div class="stat"><div class="lab">${mca?'Daily payment':rev?'Monthly cost at expected use':'Monthly payment'}</div><div class="val">${money(mca?sch.daily:sch.payment)}</div><div class="sub">${mca?money(sch.payment)+' / month':'incl. fees charged monthly'}</div></div>
+      <div class="stat"><div class="lab">${mca?'Daily payment':rev?'Monthly cost at expected use':floating&&S.mkt.useCurve?'First monthly payment':'Monthly payment'}</div><div class="val">${money(mca?sch.daily:sch.payment)}</div><div class="sub">${mca?money(sch.payment)+' / month':floating&&S.mkt.useCurve?'changes as SOFR moves':'incl. fees charged monthly'}</div></div>
       <div class="stat"><div class="lab">Cash you receive</div><div class="val">${money(sch.net)}</div><div class="sub">after ${money(sch.upfront)} upfront fees</div></div>
       <div class="stat"><div class="lab">Total interest</div><div class="val">${money(sch.totalInterest)}</div><div class="sub">${mca?'the factor premium':'over the '+(rev?L.termY:Math.min(L.termY,L.amortY))+'-year term'}</div></div>
       <div class="stat"><div class="lab">Total fees</div><div class="val">${money(sch.totalFees)}</div><div class="sub">upfront and ongoing</div></div>
@@ -165,11 +178,46 @@ function renderCost(R){
   <div class="card"><h3>${mca?'What you still owe':rev?'Drawn balance and cost to date':'Balance and interest paid over time'}</h3>
     <div class="chart" id="amort-chart"></div>
     <div class="legend"><span><i style="background:var(--c1)"></i>${mca?'Amount still owed':'Loan balance'}</span><span><i style="background:var(--c2)"></i>${mca?'Premium paid to date':'Interest paid to date'}</span></div></div>
+  ${floating?rateRiskCard(sch):''}
   <div class="card"><h3>Year by year</h3><div class="tablewrap" style="margin-top:8px"><table>
-    <thead><tr><th>Year</th><th class="r">Payments</th><th class="r">Interest</th><th class="r">Principal</th><th class="r">Fees</th><th class="r">Balance at year end</th></tr></thead>
-    <tbody>${years.filter(Boolean).map(y=>`<tr><td>${y.y}</td><td class="r num">${money(y.pay)}</td><td class="r num">${money(y.int)}</td><td class="r num">${money(y.prin)}</td><td class="r num">${money(y.fee)}</td><td class="r num">${money(y.bal)}</td></tr>`).join('')}
-    ${sch.balloon>1?`<tr class="hl"><td colspan="5">${rev?'Repay the drawn balance when the line ends':'Balloon payment due at maturity'}</td><td class="r num"><b>${money(sch.balloon)}</b></td></tr>`:''}</tbody></table></div></div>`;
-  drawAmort(sch);
+    <thead><tr><th>Year</th>${mca?'':'<th class="r">Avg rate</th>'}<th class="r">Payments</th><th class="r">Interest</th><th class="r">Principal</th><th class="r">Fees</th><th class="r">Balance at year end</th></tr></thead>
+    <tbody>${yrs.map(y=>`<tr><td>${y.y}</td>${mca?'':`<td class="r num">${pct(yRate(y))}</td>`}<td class="r num">${money(y.pay)}</td><td class="r num">${money(y.int)}</td><td class="r num">${money(y.prin)}</td><td class="r num">${money(y.fee)}</td><td class="r num">${money(y.bal)}</td></tr>`).join('')}
+    ${sch.balloon>1?`<tr class="hl"><td colspan="${mca?5:6}">${rev?'Repay the drawn balance when the line ends':'Balloon payment due at maturity'}</td><td class="r num"><b>${money(sch.balloon)}</b></td></tr>`:''}</tbody></table></div></div>`;
+  drawAmort(sch);drawRatePath(sch);
+}
+function shocked(bpsMove){const t=clone(S);t.mkt.shockBps=(S.mkt.shockBps||0)+bpsMove;return schedule(t)}
+function rateRiskCard(sch){
+  const dn=shocked(-100),up=shocked(100),rev=isRev(S),payLab=rev?'Monthly cost':'First payment';
+  const row=(lab,x,base)=>`<tr${base?' class="hl"':''}><td>${lab}</td><td class="r num">${pct(x.avgRate)}</td><td class="r num">${money(x.payment)}</td><td class="r num">${pct(x.apr)}</td><td class="r num">${money(x.totalCost)}</td><td class="r num">${base?'—':(x.totalCost>=sch.totalCost?'+':'−')+money(Math.abs(x.totalCost-sch.totalCost))}</td></tr>`;
+  return `<div class="card"><h3>Rate risk: what if SOFR moves?</h3><p class="lede" style="margin:4px 0 10px">Floating rates move with SOFR. This shows the cost if SOFR ends up 1% above or below ${S.mkt.useCurve?'the forward curve':'today'} for the whole term. A 1% move changes your total cost by about <b>${money(up.totalCost-sch.totalCost)}</b>.</p>
+    <div class="chart" id="rate-chart"></div>
+    <div class="legend"><span><i style="background:var(--c1)"></i>All-in rate, month by month</span></div>
+    <div class="tablewrap" style="margin-top:10px"><table><thead><tr><th>SOFR path</th><th class="r">Avg rate</th><th class="r">${payLab}</th><th class="r">APR</th><th class="r">Total cost</th><th class="r">vs. base</th></tr></thead><tbody>
+    ${row('1% lower',dn)}${row(S.mkt.useCurve?'Forward curve (base)':'Flat (base)',sch,true)}${row('1% higher',up)}</tbody></table></div>
+    <p class="small muted" style="margin:10px 0 0">To limit this risk, ask the bank to also quote a fixed rate, or the cost of an interest rate cap or swap.</p></div>`;
+}
+function lineChart(box,pts,{fmtY,fmtX,label}){
+  if(!box||box.offsetParent===null||!pts.length)return;
+  const W=Math.max(280,box.clientWidth),H=170,ml=50,mr=12,mt=10,mb=24,iw=W-ml-mr,ih=H-mt-mb;
+  const xs=pts.map(p=>p[0]),ys=pts.map(p=>p[1]);let lo=Math.min(...ys),hi=Math.max(...ys);
+  if(hi-lo<0.5){const mid=(hi+lo)/2;lo=mid-0.25;hi=mid+0.25}const pad=(hi-lo)*.12;lo-=pad;hi+=pad;
+  const x0=Math.min(...xs),x1=Math.max(...xs)||1,X=v=>ml+(v-x0)/(x1-x0||1)*iw,Y=v=>mt+ih-(v-lo)/(hi-lo)*ih;
+  const ticks=[0,1/3,2/3,1].map(f=>lo+f*(hi-lo));
+  const path='M'+pts.map(p=>`${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(' L');
+  const xt=[x0,x0+(x1-x0)/2,x1];
+  box.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${label}"><g class="grid">${ticks.map(t=>`<line x1="${ml}" x2="${W-mr}" y1="${Y(t)}" y2="${Y(t)}"/>`).join('')}</g>
+    <g class="axis">${ticks.map(t=>`<text x="${ml-8}" y="${Y(t)+4}" text-anchor="end">${fmtY(t)}</text>`).join('')}${xt.map((v,i)=>`<text x="${X(v)}" y="${H-6}" text-anchor="${i===0?'start':i===2?'end':'middle'}">${fmtX(v)}</text>`).join('')}</g>
+    <path d="${path}" fill="none" stroke="var(--c1)" stroke-width="2" stroke-linejoin="round"/>
+    ${pts.map(p=>`<circle cx="${X(p[0])}" cy="${Y(p[1])}" r="${pts.length<=12?4:0}" fill="var(--c1)" stroke="var(--surface)" stroke-width="2"><title>${fmtX(p[0])}: ${fmtY(p[1])}</title></circle>`).join('')}</svg>`;
+}
+function drawRatePath(sch){
+  const box=$('#rate-chart');if(!box)return;
+  lineChart(box,sch.rows.map(r=>[r.m,r.rate]),{fmtY:v=>v.toFixed(2)+'%',fmtX:m=>'Month '+Math.round(m),label:'All-in loan rate by month'});
+}
+function drawCurve(){
+  const box=$('#curve-chart');if(!box||!S.mkt.useCurve)return;
+  const pts=[[0,S.mkt.sofr],...S.mkt.curve.filter(p=>p.t>0).map(p=>[p.t,p.r]).sort((a,b)=>a[0]-b[0])];
+  lineChart(box,pts,{fmtY:v=>v.toFixed(2)+'%',fmtX:t=>t===0?'Today':tenorLabel(+t.toFixed(1)),label:'SOFR forward curve'});
 }
 function niceMax(v){const e=Math.pow(10,Math.floor(Math.log10(v||1))),n=v/e;return (n<=1?1:n<=2?2:n<=2.5?2.5:n<=5?5:10)*e}
 function drawAmort(sch){
@@ -286,6 +334,7 @@ function renderBank(R){
       <tr><td>Capital the bank must hold</td><td class="r num">${money(b.EC)} <span class="muted">(${pct(b.EC/b.ead*100,1)}, ${b.ecReg>=b.ecIRB?'regulatory minimum':'risk model'})</span></td></tr>
       <tr class="hl"><td><b>Return on that capital</b></td><td class="r num"><b>${pct(b.rarocRel,1)}</b> vs ${S.assume.hurdle}%</td></tr>
       </tbody></table>
+      ${L.index==='ust5'&&S.mkt.useCurve?`<p class="small" style="margin:10px 0 0"><b>About fixed rates:</b> the bank funds a fixed-rate loan at the swap rate for its term, which the SOFR curve puts at ${pct(b.cof)} for ${L.termY} years, not at the ${pct(S.mkt.ust5)} Treasury index your rate is quoted over.</p>`:''}
       ${L.index==='prime'?`<p class="small" style="margin:10px 0 0"><b>About Prime:</b> Prime is usually about ${pct(S.mkt.prime-S.mkt.sofr,1)} above SOFR, which is closer to what money costs the bank. So "Prime + ${(L.spreadBps/100).toFixed(2)}%" is really about SOFR + ${pct(S.mkt.prime-S.mkt.sofr+L.spreadBps/100,2)}. Ask for a SOFR-based quote to compare.</p>`:''}
     </div>
   </div>`;
@@ -372,6 +421,7 @@ function renderLearn(){
   const g=[
     ['Interest rate vs APR','The rate is what the loan charges on its balance. APR adds fees and shows the true annual cost. Always compare offers by APR.'],
     ['Index + spread','Floating rates are an index (SOFR or Prime) plus a spread in basis points. The index moves with the market. The spread is the part you negotiate.'],
+    ['SOFR forward curve','The market\'s expected path for SOFR over the coming years. A floating-rate payment follows that path, so the average rate over the loan can differ from today\'s rate.'],
     ['Basis point (bp)','One hundredth of a percent. 25 bps = 0.25%. On $1M, 25 bps is $2,500 a year.'],
     ['Amortization vs term','The payment schedule sets your payment. The term sets when the loan is due. If the schedule is longer than the term, a balloon is due at the end.'],
     ['DSCR','Debt service coverage ratio: cash flow divided by all loan payments. Banks usually want 1.25x or more, meaning $1.25 of cash flow for every $1 of payments.'],
@@ -407,10 +457,10 @@ function renderLearn(){
    WIRING
    ============================================================ */
 let lastR=null;
-function recompute(){lastR=run(S);renderKPIs(lastR);renderCost(lastR);renderAfford(lastR);renderBank(lastR);renderNegotiate(lastR);renderCompare()}
+function recompute(){lastR=run(S);drawCurve();renderKPIs(lastR);renderCost(lastR);renderAfford(lastR);renderBank(lastR);renderNegotiate(lastR);renderCompare()}
 function onInput(e){const el=e.target;if(!el.dataset||!el.dataset.p)return;const p=readInput(el,S);if(!p)return;
   if(p==='loan.product'){applyProductDefaults(S.loan.product);renderInputs();}
-  else if(p==='loan.index'||p==='biz.collType')syncVisibility();
+  else if(p==='loan.index'||p==='biz.collType'||p==='mkt.useCurve')syncVisibility();
   syncVisibility();save();recompute();}
 document.addEventListener('input',e=>{if(e.target.tagName!=='SELECT')onInput(e)});
 document.addEventListener('change',e=>{if(e.target.tagName==='SELECT'||e.target.type==='checkbox')onInput(e)});
@@ -425,10 +475,11 @@ document.addEventListener('click',e=>{
   if(e.target.id==='btn-example'){S=clone(EXAMPLE);save();boot()}
   if(e.target.id==='btn-clear'){S=clone(BLANK);save();boot()}
 });
+document.addEventListener('toggle',e=>{if(e.target.id==='assume-d'&&e.target.open)drawCurve()},true);
 document.addEventListener('keydown',e=>{const t=e.target.closest?.('[role=tab]');if(!t)return;
   if(e.key==='ArrowRight'||e.key==='ArrowLeft'){const i=TABS.findIndex(x=>x[0]===t.dataset.tab),n=(i+(e.key==='ArrowRight'?1:-1)+TABS.length)%TABS.length;setTab(TABS[n][0]);$('#tab-'+TABS[n][0]).focus();e.preventDefault()}});
 function selectEl(el){const r=document.createRange();r.selectNodeContents(el);const s=getSelection();s.removeAllRanges();s.addRange(r)}
-let rz;window.addEventListener('resize',()=>{clearTimeout(rz);rz=setTimeout(()=>lastR&&drawAmort(lastR.sch),120)});
+let rz;window.addEventListener('resize',()=>{clearTimeout(rz);rz=setTimeout(()=>{if(lastR){drawAmort(lastR.sch);drawRatePath(lastR.sch);drawCurve()}},120)});
 function boot(){
   const isEx=S.biz.name===EXAMPLE.biz.name;$('#example-note').hidden=!isEx;
   renderInputs();renderTabs();recompute();

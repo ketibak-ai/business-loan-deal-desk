@@ -7,7 +7,7 @@ import json
 import shutil
 from pathlib import Path
 
-from . import service
+from . import service, site
 from .engine import money, pct
 
 
@@ -66,6 +66,7 @@ def cmd_build_site(a: argparse.Namespace) -> None:
     for f in src.iterdir():
         if f.is_file():
             shutil.copy2(f, out / f.name)
+    (out / "index.html").write_text(site.index_html(), encoding="utf-8")
     (out / "example.json").write_text(json.dumps(service.example_scenario(), indent=2), encoding="utf-8")
     print(f"Site written to {out}")
 

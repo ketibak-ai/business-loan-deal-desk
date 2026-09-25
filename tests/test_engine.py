@@ -16,6 +16,7 @@ def _run(s):
 # ---- engine 1: cost ---------------------------------------------------------------------------
 def test_annuity_payment_matches_formula():
     s = example()
+    s["mkt"]["useCurve"] = False  # flat rate
     s["loan"].update(amount=100000, termY=5, amortY=5, spreadBps=600 - s["mkt"]["sofr"] * 100, origPct=0,
                      closingCost=0, annualFee=0)
     sch = engine.schedule(s)
@@ -50,6 +51,65 @@ def test_line_of_credit_charges_unused_fee():
     drawn = s["loan"]["amount"] * 0.40
     assert sch["drawn"] == pytest.approx(drawn)
     assert sch["rows"][0]["fee"] == pytest.approx((s["loan"]["amount"] - drawn) * 25 / 1e4 / 12)
+
+
+# ---- SOFR forward curve ---------------------------------------------------------------------------
+def test_curve_interpolation_and_extrapolation():
+    s = example()
+    assert engine.fwd_base(s, 0) == s["mkt"]["sofr"]
+    assert engine.fwd_base(s, 0.25) == pytest.approx((3.65 + 3.55) / 2)
+    assert engine.fwd_base(s, 4) == pytest.approx((3.65 + 3.85) / 2)
+    assert engine.fwd_base(s, 30) == 4.15  # flat beyond the last point
+    s["mkt"]["useCurve"] = False
+    assert engine.fwd_base(s, 7) == s["mkt"]["sofr"]
+
+
+def test_flat_curve_gives_level_payments():
+    s = example()
+    s["mkt"]["useCurve"] = False
+    pays = {round(r["pay"], 6) for r in engine.schedule(s)["rows"]}
+    assert len(pays) == 1
+
+
+def test_floating_loan_follows_the_curve():
+    s = example()
+    rows = engine.schedule(s)["rows"]
+    assert rows[0]["rate"] == pytest.approx(3.65 + 3.25)
+    assert rows[59]["rate"] == pytest.approx(engine.fwd_base(s, 59 / 12) + 3.25)
+    flat = copy.deepcopy(s)
+    flat["mkt"]["useCurve"] = False
+    # the example curve dips then rises above spot, so total interest differs from the flat projection
+    assert engine.schedule(s)["totalInterest"] != pytest.approx(engine.schedule(flat)["totalInterest"])
+
+
+def test_rate_shock_moves_floating_not_fixed():
+    s = example()
+    up = copy.deepcopy(s)
+    up["mkt"]["shockBps"] = 100
+    assert engine.schedule(up)["totalCost"] > engine.schedule(s)["totalCost"] + 30000
+    fixed = apply_product_defaults(example(), "equip")
+    fixed_up = copy.deepcopy(fixed)
+    fixed_up["mkt"]["shockBps"] = 100
+    assert engine.schedule(fixed_up)["totalCost"] == pytest.approx(engine.schedule(fixed)["totalCost"])
+
+
+def test_prime_moves_with_sofr():
+    s = apply_product_defaults(example(), "loc")
+    assert engine.path_rate(s, s["loan"], 1) == pytest.approx(6.75 + 0.75)
+    assert engine.path_rate(s, s["loan"], 61) == pytest.approx(6.75 + (engine.fwd(s, 5) - 3.65) + 0.75)
+
+
+def test_fixed_loan_funded_at_curve_swap_rate():
+    s = apply_product_defaults(example(), "equip")
+    b = engine.run(s)["bank"]
+    assert b["cof"] == pytest.approx(engine.swap_rate(s, 5))
+    s["mkt"]["useCurve"] = False
+    assert engine.run(s)["bank"]["cof"] == s["mkt"]["ust5"]
+
+
+def test_rate_risk_lever_only_for_floating():
+    assert "rate_risk" in {x["id"] for x in engine.levers(example())}
+    assert "rate_risk" not in {x["id"] for x in engine.levers(apply_product_defaults(example(), "equip"))}
 
 
 # ---- engine 2: capacity -----------------------------------------------------------------------

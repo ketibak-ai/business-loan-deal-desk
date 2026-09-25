@@ -78,7 +78,10 @@ EXAMPLE: dict = {
             "ebitda": 850000, "existingDebt": 900000, "existingDS": 240000, "fico": 735, "pg": True,
             "collType": "blanket", "collValue": 1400000, "deposits": 150000, "depositRate": 0.25,
             "treasuryFees": 4000},
-    "mkt": {"sofr": 3.65, "prime": 6.75, "ust5": 3.75},
+    # spot rates, plus an illustrative SOFR forward curve (tenor in years -> expected 1-month SOFR, %)
+    "mkt": {"sofr": 3.65, "prime": 6.75, "ust5": 3.75, "useCurve": True, "shockBps": 0,
+            "curve": [{"t": 0.5, "r": 3.55}, {"t": 1, "r": 3.50}, {"t": 2, "r": 3.55}, {"t": 3, "r": 3.65},
+                      {"t": 5, "r": 3.85}, {"t": 7, "r": 4.00}, {"t": 10, "r": 4.15}]},
     "assume": {"hurdle": 12, "tax": 24, "capRate": 3.85, "liqBps": 25, "opexBps": 45, "fixedCost": 4000,
                "runoff": 25, "minCap": 10},
     "lev": {"moreDeposits": 400000, "moreTreasury": 9000, "competeRate": 6.60,

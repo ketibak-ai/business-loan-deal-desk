@@ -44,7 +44,7 @@ def test_scenario_matches(js, i):
     s, got = SCENARIOS[i][1], js["results"][i]
     r = engine.run(s)
     for k, v in got["sch"].items():
-        assert v == _approx(r["sch"][k]), f"sch.{k}"
+        assert v == _approx(r["sch"].get(k)), f"sch.{k}"
     for k, v in got["cap"].items():
         want = r["cap"][k]
         if k == "binding":
@@ -57,7 +57,8 @@ def test_scenario_matches(js, i):
     else:
         b = r["bank"]
         assert got["bank"]["rating"] == b["rr"]["rating"]
-        for k in ("lgd", "EC", "EL", "standalone", "relFloor", "costFloor", "walkaway", "rarocStand", "rarocRel"):
+        for k in ("lgd", "EC", "EL", "standalone", "relFloor", "costFloor", "walkaway", "cof",
+                  "rarocStand", "rarocRel"):
             assert got["bank"][k] == _approx(b[k]), f"bank.{k}"
     lv = engine.levers(s, r)
     assert [x[0] for x in got["levers"]] == [x["id"] for x in lv]

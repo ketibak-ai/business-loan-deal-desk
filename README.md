@@ -7,7 +7,7 @@
 
 A mortgage calculator tells you the payment. This tells a business owner five things:
 
-1. **What the loan really costs:** payment, APR with fees included, balloon, and cost per $1 borrowed.
+1. **What the loan really costs:** payment, APR with fees included, balloon, and cost per $1 borrowed. Floating rates follow a **SOFR forward curve**, and a rate shock shows what a 1% move would cost.
 2. **Whether the business can carry it:** debt service coverage, leverage, collateral coverage, and the most you could borrow.
 3. **Which loan types fit:** term, line of credit, equipment, CRE, SBA 7(a), SBA 504, invoice financing, or merchant cash advance.
 4. **How the bank is probably pricing it:** estimated risk rating, the rate that earns its return target on the loan alone, and its **walk-away rate** once your deposits and services are counted.
@@ -17,7 +17,7 @@ It is the mirror image of [commercial-lending-raroc](https://github.com/ketibak-
 
 **Live app:** https://ketibak-ai.github.io/business-loan-deal-desk/
 
-> For education and planning only. Not a loan offer, credit decision or financial advice. Bank-side figures are estimates from a standard pricing model; every lender's model differs. Market rates in the example are illustrative, so enter today's rates.
+> For education and planning only. Not a loan offer, credit decision or financial advice. Bank-side figures are estimates from a standard pricing model; every lender's model differs. Market rates and the SOFR curve in the example are illustrative, so enter today's rates.
 
 ---
 
@@ -34,7 +34,8 @@ The business is a manufacturer with 12 years in business, $6.2M revenue, $850K E
 | Suggested opening ask | 5.70% | 205 bps |
 | Realistic outcome | 6.10% | 245 bps |
 
-- **True cost:** 7.45% APR, $18,053 a month, and a $403,615 balloon in year 5.
+- **True cost:** 7.40% APR and a $18,053 first payment. The rate follows the SOFR curve, averaging 6.86% over the term (6.82% in year 1, 7.04% in year 5), with a $403,516 balloon in year 5.
+- **Rate risk:** if SOFR runs 1% above the curve, the loan costs about $44K more over the term.
 - **Affordability:** 1.86x debt service coverage and 2.47x debt to EBITDA. Collateral covers only $910K, so expect the bank to lean on the personal guarantee.
 - **Bank's return:** the bank's estimated RAROC at the offered rate is **24%**, double its 12% hurdle. That leaves about **160 bps of room**, worth about **$33K** at the realistic outcome.
 - **Best options:** moving $400K of operating deposits (about 73 bps, $30K), adding treasury services (34 bps), and the competing 6.60% offer (30 bps).
@@ -60,15 +61,15 @@ flowchart LR
     API --> WEB
 ```
 
-The API, CLI and agent all call one service layer, so they always report the same numbers. The browser runs `engine.js`, a line-for-line port of the Python engine. A test runs both on 18 scenarios covering every product and edge case, and fails if any result differs.
+The API, CLI and agent all call one service layer, so they always report the same numbers. The browser runs `engine.js`, a line-for-line port of the Python engine. A test runs both on 22 scenarios covering every product, rate curve and edge case, and fails if any result differs.
 
 ## The engine
 
 | Engine | What it computes |
 |---|---|
-| Cost | Amortization with balloon, line of credit (drawn interest + unused fee), MCA (daily remittance). APR is solved as the IRR of net proceeds against every payment and fee. |
+| Cost | Amortization with balloon, line of credit (drawn interest + unused fee), MCA (daily remittance). Floating loans reset monthly along a SOFR forward curve (spot SOFR at month 0, then editable points out to 10 years, linear between them); Prime moves with SOFR, and the payment re-amortizes each month. A parallel rate shock stress-tests the path. APR is solved as the IRR of net proceeds against every payment and fee. |
 | Capacity | DSCR, debt/EBITDA and collateral coverage, plus the maximum loan at 1.25x DSCR, 3.5x leverage and the collateral advance rate, and which one binds. Also covenant headroom. |
-| Bank view | Risk rating from DSCR, leverage, years, credit score and industry, mapped to a probability of default (PD). LGD from collateral and guarantee. Capital is the higher of Basel IRB (99.9%) and a 10% regulatory minimum. The SBA guaranteed share carries 1.6% capital. Required income = hurdle × capital ÷ (1 − tax) − capital credit + servicing + expected loss. Deposits (after run-off) and treasury fees lower the relationship floor. Prime-indexed loans are funded at SOFR. |
+| Bank view | Risk rating from DSCR, leverage, years, credit score and industry, mapped to a probability of default (PD). LGD from collateral and guarantee. Capital is the higher of Basel IRB (99.9%) and a 10% regulatory minimum. The SBA guaranteed share carries 1.6% capital. Required income = hurdle × capital ÷ (1 − tax) − capital credit + servicing + expected loss. Deposits (after run-off) and treasury fees lower the relationship floor. Floating loans (SOFR or Prime) are funded at SOFR. Fixed loans are funded at the matched-maturity swap rate implied by the curve, not the Treasury index they are quoted over. |
 | Levers | Each option is applied to a copy of the scenario and re-run. Its value is the drop in the bank's walk-away rate (or the fee saved), in bps and dollars over the term. |
 
 All assumptions are editable in the app and the API (`assume` and `mkt` blocks).
@@ -119,9 +120,9 @@ docker run -p 8000:8000 -e ANTHROPIC_API_KEY=... business-loan-deal-desk
 
 | Check | Where | Result |
 |---|---|---|
-| Unit tests: annuity formula, APR = rate with no fees, balloon, MCA APR, Basel reference point (PD 1%, LGD 45% gives K ≈ 7.4%), floor ordering, hurdle solved exactly, lever direction | `tests/test_engine.py` | pass |
+| Unit tests: annuity formula, APR = rate with no fees, balloon, MCA APR, SOFR curve interpolation, rate shock, Prime tracking SOFR, swap-rate funding, Basel reference point (PD 1%, LGD 45% gives K ≈ 7.4%), floor ordering, hurdle solved exactly, lever direction | `tests/test_engine.py` | pass |
 | API contract, validation, auth, strict JSON; agent loop against a scripted fake Claude client | `tests/test_api_and_agent.py` | pass |
-| Browser engine equals Python engine on 18 scenarios | `tests/test_js_parity.py` | pass |
+| Browser engine equals Python engine on 22 scenarios, including flat, shocked and fixed-rate curves | `tests/test_js_parity.py` | pass |
 | Guide retrieval: 22 questions | `evals/retrieval_eval.py` | 100% hit@3, 91% hit@1 |
 | Live agent eval: 9 questions, graded on tools called, engine numbers and phrases | `evals/agent_eval.py` | manual workflow (needs an API key) |
 
@@ -130,7 +131,7 @@ CI runs lint, tests and the retrieval eval, builds the Docker image, and smoke-t
 ## Layout
 
 ```
-src/dealdesk/   engine.py, config.py, models.py, service.py, agent.py, rag.py, api.py, cli.py, observability.py
+src/dealdesk/   engine.py, config.py, models.py, service.py, agent.py, rag.py, api.py, cli.py, site.py, observability.py
 src/dealdesk/web/   index.html, app.js, engine.js (browser app)
 knowledge/      borrower guides the advisor cites
 tests/  evals/  examples/  .github/workflows/

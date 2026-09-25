@@ -52,7 +52,8 @@
     biz:{name:"Cedar & Pine Millwork", industry:"mfg", years:12, revenue:6200000, ebitda:850000, existingDebt:900000,
          existingDS:240000, fico:735, pg:true, collType:"blanket", collValue:1400000,
          deposits:150000, depositRate:0.25, treasuryFees:4000},
-    mkt:{sofr:3.65, prime:6.75, ust5:3.75},
+    mkt:{sofr:3.65, prime:6.75, ust5:3.75, useCurve:true, shockBps:0,
+         curve:[{t:0.5,r:3.55},{t:1,r:3.50},{t:2,r:3.55},{t:3,r:3.65},{t:5,r:3.85},{t:7,r:4.00},{t:10,r:4.15}]},
     assume:{hurdle:12, tax:24, capRate:3.85, liqBps:25, opexBps:45, fixedCost:4000, runoff:25, minCap:10},
     lev:{moreDeposits:400000, moreTreasury:9000, competeRate:6.60, competeName:"Lakeside Community Bank"},
     offers:[
@@ -135,6 +136,33 @@
      ============================================================ */
   const indexRate = (s, idx) => ({sofr:s.mkt.sofr, prime:s.mkt.prime, ust5:s.mkt.ust5})[idx] || 0;
   const statedRate = (s, L = s.loan) => indexRate(s, L.index) + L.spreadBps / 100;
+
+  /* SOFR forward curve: today's spot SOFR anchors t = 0, the curve points follow (tenor in years,
+     expected 1-month SOFR in %). Linear between points, flat beyond the last one. */
+  function fwdBase(s, t) {
+    const k = s.mkt;
+    if (!k.useCurve || !Array.isArray(k.curve) || !k.curve.length) return k.sofr;
+    const pts = [[0, k.sofr]].concat(k.curve.filter(p => p.t > 0).map(p => [p.t, p.r]).sort((a, b) => a[0] - b[0]));
+    if (t <= 0) return pts[0][1];
+    for (let i = 1; i < pts.length; i++) {
+      if (t <= pts[i][0]) { const [t0, r0] = pts[i - 1], [t1, r1] = pts[i]; return r0 + (r1 - r0) * (t - t0) / (t1 - t0); }
+    }
+    return pts[pts.length - 1][1];
+  }
+  const fwd = (s, t) => fwdBase(s, t) + (s.mkt.shockBps || 0) / 100;
+  // All-in rate for month m (1-based). Floating loans reset monthly along the curve; Prime moves with SOFR.
+  function pathRate(s, L, m) {
+    const t = (m - 1) / 12;
+    if (L.index === "sofr") return fwd(s, t) + L.spreadBps / 100;
+    if (L.index === "prime") return s.mkt.prime + (fwd(s, t) - s.mkt.sofr) + L.spreadBps / 100;
+    return statedRate(s, L);
+  }
+  // Matched-maturity funding rate for a fixed loan: the average forward over its term (no shock).
+  function swapRate(s, years) {
+    const n = Math.max(1, Math.round(years * 12)); let a = 0;
+    for (let m = 1; m <= n; m++) a += fwdBase(s, (m - 1) / 12);
+    return a / n;
+  }
   const sbaGuarPct = L => L.product === "sba7a" ? (L.amount <= 150000 ? 0.85 : 0.75) : 0;
   function upfrontFees(L) {
     let f = L.amount * L.origPct / 100 + L.closingCost;
@@ -158,32 +186,36 @@
       Object.assign(out, {rate:NaN, apr:i * 252 * 100, net:A - upfront, payment:pay * 21, daily:pay, totalInterest:A * (L.mcaFactor - 1),
         totalFees:upfront, firstYearDS:Math.min(total, pay * 252), avgBal:A / 2, months:months, drawn:A});
     } else if (P.rev) {
-      const rate = statedRate(s, L), r = rate / 1200, T = Math.max(1, Math.round(L.termY * 12)), drawn = A * L.utilPct / 100;
+      const rate = statedRate(s, L), T = Math.max(1, Math.round(L.termY * 12)), drawn = A * L.utilPct / 100;
       const cfs = []; let ti = 0, tf = 0;
       for (let m = 1; m <= T; m++) {
-        const int = drawn * r, unused = (A - drawn) * L.unusedBps / 1e4 / 12, fee = L.annualFee / 12;
+        const rm = pathRate(s, L, m) / 1200;
+        const int = drawn * rm, unused = (A - drawn) * L.unusedBps / 1e4 / 12, fee = L.annualFee / 12;
         const pay = int + unused + fee; ti += int; tf += unused + fee; cfs.push(pay + (m === T ? drawn : 0));
-        out.rows.push({m, pay, int, prin:0, fee:unused + fee, bal:drawn, start:drawn});
+        out.rows.push({m, pay, int, prin:0, fee:unused + fee, bal:drawn, start:drawn, rate:rm * 1200});
       }
       const i = irr(drawn - upfront, cfs);
       Object.assign(out, {rate, apr:i * 1200, net:drawn - upfront, payment:out.rows[0] ? out.rows[0].pay : 0, totalInterest:ti,
         totalFees:tf + upfront, firstYearDS:out.rows.slice(0, 12).reduce((a, r) => a + r.pay, 0) * (12 / Math.min(12, T)),
-        avgBal:drawn, months:T, drawn, balloon:drawn});
+        avgBal:drawn, months:T, drawn, balloon:drawn, avgRate:drawn > 0 ? ti / (drawn * T) * 1200 : rate});
     } else {
-      const rate = statedRate(s, L), r = rate / 1200, n = Math.max(1, Math.round(L.amortY * 12)),
+      const rate = statedRate(s, L), n = Math.max(1, Math.round(L.amortY * 12)),
         T = Math.max(1, Math.round(Math.min(L.termY, L.amortY) * 12));
-      const pmt = r ? A * r / (1 - Math.pow(1 + r, -n)) : A / n;
       let bal = A, ti = 0, tf = 0, sumBal = 0; const cfs = [];
       for (let m = 1; m <= T; m++) {
-        const start = bal, int = bal * r, prin = Math.min(bal, pmt - int); bal -= prin; const fee = L.annualFee / 12;
+        // re-amortize each month over the remaining schedule; for a fixed rate this is the level payment
+        const rm = pathRate(s, L, m) / 1200, nRem = n - (m - 1);
+        const pmt = rm ? bal * rm / (1 - Math.pow(1 + rm, -nRem)) : bal / nRem;
+        const start = bal, int = bal * rm, prin = Math.min(bal, pmt - int); bal -= prin; const fee = L.annualFee / 12;
         ti += int; tf += fee; sumBal += start; let cf = int + prin + fee;
         if (m === T && bal > 0.5) { out.balloon = bal; cf += bal; }
         cfs.push(cf);
-        out.rows.push({m, pay:int + prin + fee, int, prin, fee, bal:m === T && out.balloon ? out.balloon : bal, start});
+        out.rows.push({m, pay:int + prin + fee, int, prin, fee, bal:m === T && out.balloon ? out.balloon : bal, start, rate:rm * 1200});
       }
-      const i = irr(A - upfront, cfs);
-      Object.assign(out, {rate, apr:i * 1200, net:A - upfront, payment:pmt + L.annualFee / 12, totalInterest:ti, totalFees:tf + upfront,
-        firstYearDS:(pmt + L.annualFee / 12) * 12, avgBal:sumBal / T, months:T, drawn:A});
+      const i = irr(A - upfront, cfs), k = Math.min(12, T);
+      Object.assign(out, {rate, apr:i * 1200, net:A - upfront, payment:out.rows[0].pay, totalInterest:ti, totalFees:tf + upfront,
+        firstYearDS:out.rows.slice(0, k).reduce((a, r) => a + r.pay, 0) * (12 / k), avgBal:sumBal / T, months:T, drawn:A,
+        avgRate:sumBal > 0 ? ti / sumBal * 1200 : rate});
     }
     out.totalCost = out.totalInterest + out.totalFees;
     return out;
@@ -253,7 +285,9 @@
     const L = s.loan, B = s.biz, A = s.assume, P = PRODUCTS[L.product];
     if (P.mca) return {na:true};
     const cap = capacity(s, sch), rr = riskRating(s, cap), lgd = lossGivenDefault(s);
-    const idx = indexRate(s, L.index), cof = L.index === "prime" ? s.mkt.sofr : idx; // Prime loans are still funded at market (SOFR-like) rates
+    // Floating loans (SOFR or Prime) are funded at SOFR; fixed loans at the matched-maturity swap rate off the curve
+    const idx = indexRate(s, L.index);
+    const cof = L.index === "prime" ? s.mkt.sofr : L.index === "ust5" && s.mkt.useCurve ? swapRate(s, L.termY) : idx;
     const liq = A.liqBps / 100, h = A.hurdle / 100, t = A.tax / 100, cr = A.capRate / 100;
     const drawn = Math.max(1, P.rev ? L.amount * L.utilPct / 100 : L.amount);
     const ead = P.rev ? drawn + REVOLVER_CCF * (L.amount - drawn) : L.amount;
@@ -356,6 +390,14 @@
       ask:L.prepay === "ym" ? "Ask to replace yield maintenance with a step-down (3-2-1%), or none after year 2." : "Ask for no penalty when you repay from your own cash (not a refinance), or none after year 2.",
       why:"This keeps you free to refinance if rates fall or to pay the loan down early. It costs the bank little on a floating-rate loan.",
       bps:0, dollars:0});
+    if (L.index !== "ust5") {
+      const t = clone(s); t.mkt.shockBps = (s.mkt.shockBps || 0) + 100;
+      const extra = schedule(t).totalCost - R.sch.totalCost;
+      if (extra > 0) out.push({id:"rate_risk", kind:"terms", title:"Protect against rising rates",
+        ask:"Ask the bank to also quote a fixed rate, or the cost of an interest rate cap or swap, and compare.",
+        why:`This is a floating rate. If SOFR runs 1% above today's curve, the loan costs about ${money(extra)} more over the term. A cap or a fixed rate costs a little more up front and buys certainty.`,
+        bps:0, dollars:0});
+    }
     if (R.cap.cushion < 0.25) out.push({id:"covenant", kind:"terms", title:"Negotiate covenant headroom",
       ask:`Ask for a minimum DSCR covenant of ${(Math.max(1.05, L.covDSCR - 0.1)).toFixed(2)}x instead of ${L.covDSCR.toFixed(2)}x, tested annually rather than quarterly.`,
       why:`Your EBITDA can only drop about ${pct(Math.max(0, R.cap.cushion * 100), 0)} before you breach. A breach can bring fees, a higher rate or a demand to repay.`,
@@ -389,5 +431,5 @@
 
   return {PRODUCTS, INDUSTRIES, COLLATERAL, INDEXES, PREPAY, PD_BY_RATING, EXAMPLE, BLANK, clone,
     money, moneyShort, pct, bps, x2, ncdf, ninv, irbK, irr, indexRate, statedRate, sbaGuarPct, upfrontFees,
-    schedule, capacity, eligibility, riskRating, lossGivenDefault, bankView, run, levers, offerSchedule};
+    fwdBase, fwd, pathRate, swapRate, schedule, capacity, eligibility, riskRating, lossGivenDefault, bankView, run, levers, offerSchedule};
 });

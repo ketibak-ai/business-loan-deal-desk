@@ -15,11 +15,11 @@ from pathlib import Path
 
 import anthropic
 from fastapi import Depends, FastAPI, HTTPException, Request, Security
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.security import APIKeyHeader
 from fastapi.staticfiles import StaticFiles
 
-from . import __version__, service
+from . import __version__, service, site
 from .models import AskIn, CompareIn, QueryIn, Scenario
 from .observability import METRICS, log_event, request_id, setup_logging
 
@@ -126,5 +126,10 @@ def ask(body: AskIn) -> dict:
             "model": r.model, "stop_reason": r.stop_reason, "latency_s": r.latency_s}
 
 
-# The browser app (same engine, ported to JS) is served last so API routes take precedence.
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+def index() -> str:
+    return site.index_html()
+
+
+# The browser app's scripts (same engine, ported to JS) are served last so API routes take precedence.
 app.mount("/", StaticFiles(directory=Path(__file__).with_name("web"), html=True), name="web")
