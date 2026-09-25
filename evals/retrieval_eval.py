@@ -36,6 +36,10 @@ CASES = [
     ("Do banks price a small business loan differently from a commercial loan?",
      "Small Business versus Commercial Pricing"),
     ("What credit score do I need for an SBA loan now that SBSS is gone?", "SBA Credit Score Requirements"),
+    ("What is the maximum interest rate on a $300,000 SBA 7(a) loan?", "SBA 7(a) Rates and Fees"),
+    ("Is there a penalty for paying off my 25-year SBA loan early?", "SBA Prepayment Fee"),
+    ("Why won't my banker lower the rate on my SBA loan?", "Why SBA Rates Sit Near the Cap"),
+    ("When can I refinance out of my SBA loan into a regular bank loan?", "Graduating from SBA to a Conventional Loan"),
 ]
 
 

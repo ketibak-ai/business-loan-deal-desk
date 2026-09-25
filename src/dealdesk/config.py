@@ -64,6 +64,9 @@ PD_BY_RATING = [None, 0.0003, 0.0006, 0.0015, 0.003, 0.005, 0.009, 0.016, 0.035,
 SCORE_BANDS = [["A", 85, 0.006], ["B", 75, 0.012], ["C", 65, 0.022], ["D", 55, 0.04], ["E", 0, 0.08]]
 SMALL_MAX_REVENUE = 5_000_000     # auto tier: at or below this revenue and exposure -> small business
 SMALL_MAX_EXPOSURE = 1_500_000
+# SBA 7(a) maximum spread over the base rate by loan size (SOP 50 10): [loan amount up to, max spread %]
+SBA_SPREAD_CAPS = [[50000, 6.5], [250000, 6.0], [350000, 4.5], [5000000, 3.0]]
+SBA_MAX_LOAN = 5_000_000
 
 DSCR_MIN = 1.25               # typical bank minimum debt service coverage
 LEVERAGE_MAX = 3.5            # typical maximum total debt / EBITDA
@@ -78,7 +81,7 @@ EXAMPLE: dict = {
     "loan": {"product": "term", "lender": "First Harbor Bank", "amount": 1200000, "termY": 5, "amortY": 7,
              "index": "sofr", "spreadBps": 325, "utilPct": 40, "unusedBps": 25, "mcaFactor": 1.35,
              "mcaMonths": 9, "origPct": 1.0, "closingCost": 7500, "annualFee": 0, "sbaFeePct": 2.5,
-             "prepay": "step", "covDSCR": 1.25},
+             "sbaFeeAuto": True, "prepay": "step", "covDSCR": 1.25},
     "biz": {"name": "Cedar & Pine Millwork", "industry": "mfg", "years": 12, "revenue": 6200000,
             "ebitda": 850000, "existingDebt": 900000, "existingDS": 240000, "fico": 735, "pg": True, "tier": "auto",
             "collType": "blanket", "collValue": 1400000, "deposits": 150000, "depositRate": 0.25,
@@ -89,7 +92,7 @@ EXAMPLE: dict = {
                       {"t": 5, "r": 3.85}, {"t": 7, "r": 4.00}, {"t": 10, "r": 4.15}]},
     "assume": {"hurdle": 12, "tax": 24, "capRate": 3.85, "liqBps": 25, "opexBps": 45, "fixedCost": 4000,
                "runoff": 25, "minCap": 10, "smallRW": 100, "discretionBps": 50,
-               "fixedCostSmall": 1500},
+               "fixedCostSmall": 1500, "sbaSell": True, "sbaPremiumK": 3.5, "sbaStripBps": 100},
     "lev": {"moreDeposits": 400000, "moreTreasury": 9000, "competeRate": 6.60,
             "competeName": "Lakeside Community Bank"},
     "offers": [

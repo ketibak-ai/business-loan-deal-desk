@@ -52,6 +52,15 @@ def test_small_business_segment_in_api():
     assert bv["room_to_negotiate_bps"] <= 50 + 1e-6
 
 
+def test_sba_review_and_graduation_in_api():
+    r = client.post("/api/analyze", json={"loan": {"product": "sba7a", "amount": 1200000, "termY": 10, "amortY": 10,
+                                                   "index": "prime", "spreadBps": 275}}).json()
+    assert r["sba_review"]["capSpread"] == 3.0 and r["sba_review"]["fee"] > 0
+    assert r["graduation"]["status"] in {"ready", "close", "not_yet"} and len(r["graduation"]["criteria"]) == 6
+    assert r["bank_view"]["sba_sale"]["sale_premium"] > 0
+    assert client.post("/api/analyze", json={}).json()["graduation"] is None
+
+
 def test_analyze_partial_scenario_uses_defaults():
     r = client.post("/api/analyze", json={"loan": {"product": "equip", "amount": 300000}})
     assert r.status_code == 200 and r.json()["product"] == "equip"

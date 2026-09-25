@@ -63,6 +63,8 @@ def _flat_schema() -> dict:
         "years_in_business": num, "annual_revenue": num, "ebitda": num, "existing_debt": num,
         "existing_annual_debt_payments": num, "owner_credit_score": num,
         "personal_guarantee": {"type": "boolean"},
+        "sba_fee_schedule": {"type": "boolean", "description": "SBA 7(a): apply the FY2026 guarantee fee schedule "
+                                                              "(default true)"},
         "bank_segment": {"type": "string", "enum": ["auto", "small", "commercial"],
                          "description": "small = business banking scorecard and rate grid; commercial = risk rating "
                                         "and economic capital; auto picks by revenue and total debt"},
@@ -91,7 +93,9 @@ TOOLS = [
         "description": "Run the full deal engine on one loan offer. Returns true cost (stated rate, APR, "
                        "payment, fees, balloon), affordability (DSCR, debt/EBITDA, collateral coverage, "
                        "maximum loan by each limit), which loan types fit, and the bank's estimated view "
-                       "(risk rating, loan-only target, walk-away rate, room to negotiate). Floating loans follow a "
+                       "(risk rating, loan-only target, walk-away rate, room to negotiate). For SBA 7(a) it adds "
+                       "sba_review (fee schedule, spread cap, prepayment rule, the bank's sale premium) and graduation "
+                       "(readiness for a conventional middle-market loan). Floating loans follow a "
                        "SOFR forward curve, and rate_sensitivity shows the cost of SOFR moving +/-100 bps. "
                        "Omitted loan terms take the product's typical values; omitted business fields take neutral "
                        "defaults, so pass everything the user told you.",

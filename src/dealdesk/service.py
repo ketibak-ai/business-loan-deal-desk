@@ -117,8 +117,10 @@ def _bank(b: dict) -> dict:
         "segment": b["tier"],
         "method": ("Small business: credit scorecard band with a pooled default rate, Basel retail capital, "
                    "priced off a rate grid with limited banker discretion" if small else
-                   "Commercial: individual risk rating, economic capital (Basel IRB corporate with maturity and "
-                   "small-firm adjustments), deal-by-deal relationship RAROC"),
+                   "Middle market (commercial): individual risk rating, economic capital (Basel IRB corporate with "
+                   "maturity and small-firm adjustments), deal-by-deal relationship RAROC"),
+        "sba_sale": ({"guaranteed_share_sold": True, "sale_premium": b["salePremium"], "servicing_strip": b["strip"],
+                      "retained_funding": b["fund"]} if b["sold"] else None),
         "credit_score": b["rr"].get("score"),
         "credit_risk": {
             "pd_pct": b["rr"]["pd"] * 100, "lgd_pct": b["lgd"] * 100, "ead": b["ead"],
@@ -161,6 +163,8 @@ def analyze(scenario: dict | Scenario | None = None) -> dict:
         "capacity": _capacity(res["cap"]),
         "eligibility": engine.eligibility(s, res["cap"]),
         "bank_view": _bank(res["bank"]),
+        "sba_review": engine.sba_review(s, res),
+        "graduation": engine.graduation(s, res),
         "savings_at_realistic_outcome": savings,
         "levers": lv,
         "talking_points": brief(s, res, lv),
@@ -210,7 +214,8 @@ _FLAT = {  # agent/CLI argument -> (section, field)
     "industry": ("biz", "industry"), "years_in_business": ("biz", "years"), "annual_revenue": ("biz", "revenue"),
     "ebitda": ("biz", "ebitda"), "existing_debt": ("biz", "existingDebt"),
     "existing_annual_debt_payments": ("biz", "existingDS"), "owner_credit_score": ("biz", "fico"),
-    "personal_guarantee": ("biz", "pg"), "bank_segment": ("biz", "tier"), "collateral_type": ("biz", "collType"),
+    "personal_guarantee": ("biz", "pg"), "bank_segment": ("biz", "tier"),
+    "sba_fee_schedule": ("loan", "sbaFeeAuto"), "collateral_type": ("biz", "collType"),
     "collateral_value": ("biz", "collValue"), "operating_deposits": ("biz", "deposits"),
     "deposit_rate_pct": ("biz", "depositRate"), "treasury_fees": ("biz", "treasuryFees"),
     "extra_deposits_offered": ("lev", "moreDeposits"), "extra_treasury_fees_offered": ("lev", "moreTreasury"),

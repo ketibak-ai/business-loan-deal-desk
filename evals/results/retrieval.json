@@ -1,7 +1,7 @@
 {
   "summary": {
-    "cases": 24,
-    "hit@1": 0.917,
+    "cases": 28,
+    "hit@1": 0.893,
     "hit@3": 1.0
   },
   "rows": [
@@ -22,7 +22,7 @@
       "retrieved": [
         "Term Sheet Glossary \u00a7 Amortization, Term and Balloon",
         "Business Loan Types Guide \u00a7 Commercial Real Estate Loans",
-        "SBA Loan Programs \u00a7 Why Banks Use the SBA Guarantee"
+        "SBA Loan Programs \u00a7 Why SBA Rates Sit Near the Cap"
       ],
       "hit@1": true,
       "hit@3": true
@@ -33,7 +33,7 @@
       "retrieved": [
         "How Banks Price Business Loans \u00a7 Pricing Floors",
         "How Banks Price Business Loans \u00a7 Capital and the Hurdle Rate",
-        "Loan Negotiation Playbook \u00a7 Using a Competing Offer"
+        "How Banks Price Business Loans \u00a7 Relationship Pricing"
       ],
       "hit@1": true,
       "hit@3": true
@@ -44,7 +44,7 @@
       "retrieved": [
         "How Banks Price Business Loans \u00a7 Relationship Pricing",
         "Loan Negotiation Playbook \u00a7 Using Deposits and Treasury Services",
-        "SBA Loan Programs \u00a7 SBA Eligibility"
+        "SBA Loan Programs \u00a7 Why SBA Rates Sit Near the Cap"
       ],
       "hit@1": true,
       "hit@3": true
@@ -54,8 +54,8 @@
       "expected": "Cost of Funds",
       "retrieved": [
         "How Banks Price Business Loans \u00a7 Cost of Funds",
-        "Term Sheet Glossary \u00a7 Index and Spread",
-        "SBA Loan Programs \u00a7 SBA 7(a) Rates and Fees"
+        "SBA Loan Programs \u00a7 SBA 7(a) Rates and Fees",
+        "Term Sheet Glossary \u00a7 Index and Spread"
       ],
       "hit@1": true,
       "hit@3": true
@@ -86,11 +86,11 @@
       "query": "What fees does an SBA 7(a) loan charge?",
       "expected": "SBA 7(a) Rates and Fees",
       "retrieved": [
-        "SBA Loan Programs \u00a7 SBA 7(a) Rates and Fees",
         "SBA Loan Programs \u00a7 SBA 7(a) Basics",
-        "SBA Loan Programs \u00a7 Why Banks Use the SBA Guarantee"
+        "SBA Loan Programs \u00a7 SBA 7(a) Rates and Fees",
+        "SBA Loan Programs \u00a7 Why SBA Rates Sit Near the Cap"
       ],
-      "hit@1": true,
+      "hit@1": false,
       "hit@3": true
     },
     {
@@ -99,7 +99,7 @@
       "retrieved": [
         "SBA Loan Programs \u00a7 SBA 504 Loans",
         "SBA Loan Programs \u00a7 SBA 7(a) Basics",
-        "SBA Loan Programs \u00a7 SBA Eligibility"
+        "SBA Loan Programs \u00a7 SBA 7(a) Rates and Fees"
       ],
       "hit@1": true,
       "hit@3": true
@@ -143,7 +143,7 @@
       "retrieved": [
         "Loan Negotiation Playbook \u00a7 Using a Competing Offer",
         "Business Loan Types Guide \u00a7 Choosing the Right Loan",
-        "Business Loan Types Guide \u00a7 Term Loans"
+        "Term Sheet Glossary \u00a7 Amortization, Term and Balloon"
       ],
       "hit@1": true,
       "hit@3": true
@@ -153,8 +153,8 @@
       "expected": "Fee Negotiation",
       "retrieved": [
         "Loan Negotiation Playbook \u00a7 Fee Negotiation",
-        "SBA Loan Programs \u00a7 SBA 7(a) Rates and Fees",
-        "Term Sheet Glossary \u00a7 Unused Fee"
+        "SBA Loan Programs \u00a7 SBA Prepayment Fee",
+        "SBA Loan Programs \u00a7 SBA 7(a) Rates and Fees"
       ],
       "hit@1": true,
       "hit@3": true
@@ -208,8 +208,8 @@
       "expected": "Prepayment Penalties",
       "retrieved": [
         "Covenants, Guarantees and Borrower Protections \u00a7 Prepayment Penalties",
-        "Loan Negotiation Playbook \u00a7 Negotiate the Whole Deal",
-        "Business Loan Types Guide \u00a7 Commercial Real Estate Loans"
+        "SBA Loan Programs \u00a7 SBA Prepayment Fee",
+        "Loan Negotiation Playbook \u00a7 Negotiate the Whole Deal"
       ],
       "hit@1": true,
       "hit@3": true
@@ -265,6 +265,50 @@
         "SBA Loan Programs \u00a7 SBA Credit Score Requirements",
         "SBA Loan Programs \u00a7 Why Banks Use the SBA Guarantee",
         "How Banks Price Business Loans \u00a7 Small Business versus Commercial Pricing"
+      ],
+      "hit@1": true,
+      "hit@3": true
+    },
+    {
+      "query": "What is the maximum interest rate on a $300,000 SBA 7(a) loan?",
+      "expected": "SBA 7(a) Rates and Fees",
+      "retrieved": [
+        "SBA Loan Programs \u00a7 SBA 7(a) Rates and Fees",
+        "SBA Loan Programs \u00a7 SBA 7(a) Basics",
+        "SBA Loan Programs \u00a7 Why SBA Rates Sit Near the Cap"
+      ],
+      "hit@1": true,
+      "hit@3": true
+    },
+    {
+      "query": "Is there a penalty for paying off my 25-year SBA loan early?",
+      "expected": "SBA Prepayment Fee",
+      "retrieved": [
+        "SBA Loan Programs \u00a7 SBA Prepayment Fee",
+        "Covenants, Guarantees and Borrower Protections \u00a7 Prepayment Penalties",
+        "SBA Loan Programs \u00a7 SBA 7(a) Basics"
+      ],
+      "hit@1": true,
+      "hit@3": true
+    },
+    {
+      "query": "Why won't my banker lower the rate on my SBA loan?",
+      "expected": "Why SBA Rates Sit Near the Cap",
+      "retrieved": [
+        "SBA Loan Programs \u00a7 Why SBA Rates Sit Near the Cap",
+        "SBA Loan Programs \u00a7 Why Banks Use the SBA Guarantee",
+        "How Banks Price Business Loans \u00a7 Pricing Floors"
+      ],
+      "hit@1": true,
+      "hit@3": true
+    },
+    {
+      "query": "When can I refinance out of my SBA loan into a regular bank loan?",
+      "expected": "Graduating from SBA to a Conventional Loan",
+      "retrieved": [
+        "SBA Loan Programs \u00a7 Graduating from SBA to a Conventional Loan",
+        "SBA Loan Programs \u00a7 SBA Prepayment Fee",
+        "Covenants, Guarantees and Borrower Protections \u00a7 Prepayment Penalties"
       ],
       "hit@1": true,
       "hit@3": true

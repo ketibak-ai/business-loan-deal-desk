@@ -45,19 +45,23 @@
   // Small-business ("business banking") scorecard bands: [band, minimum score, pooled one-year PD]
   const SCORE_BANDS = [["A",85,0.006],["B",75,0.012],["C",65,0.022],["D",55,0.04],["E",0,0.08]];
   const SMALL_MAX_REVENUE = 5000000, SMALL_MAX_EXPOSURE = 1500000;
+  // SBA 7(a) maximum spread over the base rate by loan size (SOP 50 10): [loan amount up to, max spread %]
+  const SBA_SPREAD_CAPS = [[50000,6.5],[250000,6.0],[350000,4.5],[5000000,3.0]];
+  const SBA_MAX_LOAN = 5000000;
   const DSCR_MIN = 1.25, LEVERAGE_MAX = 3.5, REVOLVER_CCF = 0.75, EC_MULTIPLIER = 1.06,
         GOV_GUARANTEE_CAPITAL = 0.016, TREASURY_MARGIN = 0.45, UNSECURED_LGD = 0.45, PG_LGD_BENEFIT = 0.03;
 
   const EXAMPLE = {
     loan:{product:"term", lender:"First Harbor Bank", amount:1200000, termY:5, amortY:7, index:"sofr", spreadBps:325,
           utilPct:40, unusedBps:25, mcaFactor:1.35, mcaMonths:9, origPct:1.0, closingCost:7500, annualFee:0,
-          sbaFeePct:2.5, prepay:"step", covDSCR:1.25},
+          sbaFeePct:2.5, sbaFeeAuto:true, prepay:"step", covDSCR:1.25},
     biz:{name:"Cedar & Pine Millwork", industry:"mfg", years:12, revenue:6200000, ebitda:850000, existingDebt:900000,
          existingDS:240000, fico:735, pg:true, tier:"auto", collType:"blanket", collValue:1400000,
          deposits:150000, depositRate:0.25, treasuryFees:4000},
     mkt:{sofr:3.65, prime:6.75, ust5:3.75, useCurve:true, shockBps:0,
          curve:[{t:0.5,r:3.55},{t:1,r:3.50},{t:2,r:3.55},{t:3,r:3.65},{t:5,r:3.85},{t:7,r:4.00},{t:10,r:4.15}]},
-    assume:{hurdle:12, tax:24, capRate:3.85, liqBps:25, opexBps:45, fixedCost:4000, runoff:25, minCap:10, smallRW:100, discretionBps:50, fixedCostSmall:1500},
+    assume:{hurdle:12, tax:24, capRate:3.85, liqBps:25, opexBps:45, fixedCost:4000, runoff:25, minCap:10, smallRW:100, discretionBps:50, fixedCostSmall:1500,
+            sbaSell:true, sbaPremiumK:3.5, sbaStripBps:100},
     lev:{moreDeposits:400000, moreTreasury:9000, competeRate:6.60, competeName:"Lakeside Community Bank"},
     offers:[
       {name:"First Harbor Bank", amount:1200000, rate:6.90, termY:5, amortY:7, origPct:1.0, closing:7500, annualFee:0},
@@ -175,16 +179,29 @@
     return a / n;
   }
   const sbaGuarPct = L => L.product === "sba7a" ? (L.amount <= 150000 ? 0.85 : 0.75) : 0;
-  function upfrontFees(L) {
+  function sbaCapSpread(L) {
+    const c = SBA_SPREAD_CAPS.find(x => L.amount <= x[0]);
+    return c ? c[1] : SBA_SPREAD_CAPS[SBA_SPREAD_CAPS.length - 1][1];
+  }
+  // SBA 7(a) upfront guarantee fee on the guaranteed portion, FY2026 schedule (approved Oct 1 2025 to Sep 30 2026)
+  function sbaGuaranteeFee(s, L) {
+    const G = L.amount * sbaGuarPct(L);
+    if (!L.sbaFeeAuto) return G * L.sbaFeePct / 100;
+    if (s.biz.industry === "mfg" && L.amount <= 950000) return 0; // FY2026 waiver for manufacturers
+    if (L.amount <= 150000) return G * 0.02;
+    if (L.amount <= 700000) return G * 0.03;
+    return 0.035 * Math.min(G, 1000000) + 0.0375 * Math.max(0, G - 1000000);
+  }
+  function upfrontFees(s, L) {
     let f = L.amount * L.origPct / 100 + L.closingCost;
-    if (L.product === "sba7a") f += L.amount * sbaGuarPct(L) * L.sbaFeePct / 100;
+    if (L.product === "sba7a") f += sbaGuaranteeFee(s, L);
     if (L.product === "sba504") f += L.amount * L.sbaFeePct / 100;
     return f;
   }
 
   function schedule(s, L = s.loan) {
     const P = PRODUCTS[L.product], A = Math.max(0, L.amount), out = {rows:[], balloon:0};
-    const upfront = upfrontFees(L); out.upfront = upfront;
+    const upfront = upfrontFees(s, L); out.upfront = upfront;
     if (P.mca) {
       const months = Math.max(1, L.mcaMonths), N = Math.max(1, Math.round(months * 21)), total = A * L.mcaFactor, pay = total / N;
       const i = irr(A - upfront, new Array(N).fill(pay));
@@ -322,11 +339,14 @@
     const drawn = Math.max(1, P.rev ? L.amount * L.utilPct / 100 : L.amount);
     const ead = P.rev ? drawn + REVOLVER_CCF * (L.amount - drawn) : L.amount;
     const g = sbaGuarPct(L), M = Math.min(5, Math.max(1, L.termY));
+    // SBA 7(a): the bank usually sells the guaranteed share at a premium and keeps a servicing strip on it
+    const sold = L.product === "sba7a" && !!A.sbaSell, fund = sold ? drawn * (1 - g) : drawn;
     const S5 = Math.min(50, Math.max(5, B.revenue / 1e6)), sizeAdj = 0.04 * (1 - (S5 - 5) / 45);
     const K = small ? irbRetailK(rr.pd, lgd) : irbK(rr.pd, lgd, M, sizeAdj);
     const rw = small ? A.smallRW / 100 : 1;
-    const ecIRB = EC_MULTIPLIER * K * ead * (1 - g) + GOV_GUARANTEE_CAPITAL * ead * g;
-    const ecReg = A.minCap / 100 * rw * ead * (1 - g) + GOV_GUARANTEE_CAPITAL * ead * g;
+    const govCap = sold ? 0 : GOV_GUARANTEE_CAPITAL * ead * g; // a sold guaranteed share leaves the balance sheet
+    const ecIRB = EC_MULTIPLIER * K * ead * (1 - g) + govCap;
+    const ecReg = A.minCap / 100 * rw * ead * (1 - g) + govCap;
     const EC = Math.max(ecIRB, ecReg); // banks price to the higher of economic and regulatory capital
     const EL = rr.pd * lgd * ead * (1 - g);
     // scorecard lending is automated, so a small-business loan carries a lower fixed cost than a commercial one
@@ -336,26 +356,73 @@
     const depVal = B.deposits * Math.max(0, cof / 100 - B.depositRate / 100) * (1 - A.runoff / 100);
     const tsVal = B.treasuryFees * TREASURY_MARGIN;
     const relInc = depVal + tsVal;
-    const rateFrom = nii => cof + liq + (nii - fees) / drawn * 100;
+    const strip = sold ? g * L.amount * A.sbaStripBps / 1e4 : 0;
+    // sale premium rises with the coupon: sbaPremiumK% of the guaranteed amount per 1% of rate over Prime, over the term
+    const premK = sold ? g * L.amount * A.sbaPremiumK / 100 / Math.max(1, L.termY) : 0;
+    const premiumAt = rate => premK * (rate - s.mkt.prime);
+    const other = fees + strip;
+    const rateFrom = nii => sold ? (nii - other + (cof + liq) / 100 * fund + premK * s.mkt.prime) / (fund / 100 + premK)
+      : cof + liq + (nii - fees) / drawn * 100;
     const standalone = rateFrom(niiReq);
     const relFloor = rateFrom(niiReq - relInc);
-    const costFloor = cof + liq + Math.max(0, EL + opex - fees) / drawn * 100;
+    const costFloor = sold ? Math.max(cof + liq, rateFrom(EL + opex)) : cof + liq + Math.max(0, EL + opex - fees) / drawn * 100;
     const walkaway = Math.max(costFloor, relFloor);
     const offered = sch.rate;
-    const niiAt = rate => (rate - cof - liq) / 100 * drawn + fees;
+    const niiAt = rate => sold ? (rate - cof - liq) / 100 * fund + other + premiumAt(rate) : (rate - cof - liq) / 100 * drawn + fees;
     const raroc = (rate, rel) => ((niiAt(rate) + (rel ? relInc : 0)) - opex - EL + cr * EC) * (1 - t) / EC * 100;
     const room = offered - walkaway;
-    // Small-business loans are priced off a rate grid: bankers can usually discount only a limited amount
-    const negotiable = small ? Math.min(Math.max(0, room), A.discretionBps / 100) : Math.max(0, room);
-    const opening = small ? offered - negotiable : walkaway + negotiable * 0.25;
-    const landing = small ? offered - negotiable / 2 : walkaway + negotiable * 0.5;
+    // Small-business and SBA loans are priced off a grid or near the SBA cap: bankers can discount only a little
+    const gridPriced = small || L.product === "sba7a";
+    const negotiable = gridPriced ? Math.min(Math.max(0, room), A.discretionBps / 100) : Math.max(0, room);
+    const opening = gridPriced ? offered - negotiable : walkaway + negotiable * 0.25;
+    const landing = gridPriced ? offered - negotiable / 2 : walkaway + negotiable * 0.5;
     return {na:false, tier, cap, rr, lgd, idx, cof, liq, drawn, ead, g, K, EC, ecIRB, ecReg, EL, opex, fees, niiReq, depVal, tsVal, relInc,
       standalone, relFloor, costFloor, walkaway, offered, room,
       rarocStand:raroc(offered, false), rarocRel:raroc(offered, true),
-      negotiable, opening, landing,
+      negotiable, opening, landing, gridPriced, sold, fund, strip,
+      salePremium:sold ? g * L.amount * A.sbaPremiumK / 100 * (offered - s.mkt.prime) : 0,
       revenueAtOffer:niiAt(offered)};
   }
   function run(s) { const sch = schedule(s), cap = capacity(s, sch), bank = bankView(s, sch); return {sch, cap, bank}; }
+
+  /* ============================================================
+     SBA 7(a) rules check and graduation to a conventional (middle-market) loan
+     ============================================================ */
+  function sbaReview(s, R) {
+    const L = s.loan;
+    if (L.product !== "sba7a") return null;
+    const g = sbaGuarPct(L), G = L.amount * g, capSpread = sbaCapSpread(L), maxRate = s.mkt.prime + capSpread;
+    const fee = sbaGuaranteeFee(s, L), fit = eligibility(s, R.cap).find(e => e.k === "term");
+    return {guaranteed:g, guaranteedAmt:G, fee, feeRate:G > 0 ? fee / G : 0, capSpread, maxRate, offered:R.sch.rate,
+      overCap:R.sch.rate > maxRate + 1e-9, overMaxLoan:L.amount > SBA_MAX_LOAN, prepayFee:L.termY >= 15,
+      creditElsewhere:fit.status === "good", manufacturerWaiver:!!L.sbaFeeAuto && s.biz.industry === "mfg" && L.amount <= 950000,
+      sold:R.bank.sold, salePremium:R.bank.salePremium, strip:R.bank.strip};
+  }
+  function graduation(s, R) {
+    const L = s.loan, B = s.biz;
+    if (L.product !== "sba7a") return null;
+    const t = clone(s);
+    Object.assign(t.loan, {product:"term", index:"sofr", termY:Math.min(L.termY, 7), amortY:Math.min(L.amortY, 10), origPct:1, spreadBps:300});
+    t.biz.tier = B.revenue > SMALL_MAX_REVENUE ? "commercial" : "auto";
+    let r = run(t);
+    for (let k = 0; k < 2; k++) { t.loan.spreadBps = Math.round((r.bank.standalone - r.bank.idx) * 100); r = run(t); }
+    const criteria = [
+      ["3 or more years in business", B.years >= 3],
+      ["EBITDA of $1M or more", B.ebitda >= 1000000],
+      ["Debt service coverage of 1.35x or more on conventional terms", r.cap.dscr >= 1.35],
+      ["Debt to EBITDA of 3.0x or less", r.cap.lev <= 3],
+      ["Owner credit score of 700 or more", B.fico >= 700],
+      ["Collateral covers 80% of the loan, or coverage of 1.75x or more", r.cap.collCov >= 0.8 || r.cap.dscr >= 1.75],
+    ].map(([label, met]) => ({label, met}));
+    // time in business and owner credit are gates: lenders rarely refinance out of SBA without both
+    const met = criteria.filter(c => c.met).length, gates = [criteria[0].met, criteria[4].met];
+    const status = met >= 5 && gates[0] && gates[1] ? "ready" : met >= 3 && (gates[0] || gates[1]) ? "close" : "not_yet";
+    return {status, met, criteria,
+      conv:{rate:r.sch.rate, spreadBps:t.loan.spreadBps, apr:r.sch.apr, payment:r.sch.payment, dscr:r.cap.dscr,
+            termY:t.loan.termY, amortY:t.loan.amortY, tier:r.bank.tier},
+      sba:{rate:R.sch.rate, apr:R.sch.apr, payment:R.sch.payment, dscr:R.cap.dscr},
+      prepayFeePct:L.termY >= 15 ? [5, 3, 1] : [0, 0, 0]};
+  }
 
   /* ============================================================
      ENGINE 4: negotiation levers (re-run the engine with each change)
@@ -366,7 +433,7 @@
     const avgBal = R.sch.avgBal;
     const worth = d => Math.max(0, d) / 1e4 * avgBal * yrs;
     // on the small-business rate grid a concession is limited by the banker's discretion
-    const capBps = base.tier === "small" ? s.assume.discretionBps : Infinity;
+    const capBps = base.gridPriced ? s.assume.discretionBps : Infinity;
     const tryMod = fn => { const t = clone(s); fn(t); const r = run(t); return {r, dFloor:Math.min(capBps, (base.walkaway - r.bank.walkaway) * 100)}; };
     if (s.lev.moreDeposits > 0) {
       const m = tryMod(t => { t.biz.deposits += s.lev.moreDeposits; });
@@ -425,7 +492,12 @@
         why:`It saves ${money(saved)} upfront and lowers your APR from ${pct(R.sch.apr)} to ${pct(sch2.apr)}. Banks often give on fees before they give on rate.`,
         bps:(R.sch.apr - sch2.apr) * 100, dollars:saved});
     }
-    if (L.prepay !== "none") out.push({id:"prepay", kind:"terms", title:"Remove or soften the prepayment penalty",
+    if (L.product === "sba7a") {
+      if (L.termY >= 15) out.push({id:"prepay", kind:"terms", title:"Plan around the SBA prepayment fee",
+        ask:"The SBA sets this fee and a bank can't waive it. Time any refinance or large paydown for after year 3.",
+        why:"On SBA 7(a) loans of 15 years or longer, prepaying 25% or more in the first 3 years costs 5%, 3% or 1% of the amount prepaid. After year 3 there is no SBA fee.",
+        bps:0, dollars:0});
+    } else if (L.prepay !== "none") out.push({id:"prepay", kind:"terms", title:"Remove or soften the prepayment penalty",
       ask:L.prepay === "ym" ? "Ask to replace yield maintenance with a step-down (3-2-1%), or none after year 2." : "Ask for no penalty when you repay from your own cash (not a refinance), or none after year 2.",
       why:"This keeps you free to refinance if rates fall or to pay the loan down early. It costs the bank little on a floating-rate loan.",
       bps:0, dollars:0});
@@ -468,7 +540,7 @@
     return schedule(t);
   }
 
-  return {PRODUCTS, INDUSTRIES, COLLATERAL, INDEXES, PREPAY, PD_BY_RATING, SCORE_BANDS, EXAMPLE, BLANK, clone,
-    money, moneyShort, pct, bps, x2, ncdf, ninv, irbK, irbRetailK, irr, tierOf, creditScore, indexRate, statedRate, sbaGuarPct, upfrontFees,
+  return {PRODUCTS, INDUSTRIES, COLLATERAL, INDEXES, PREPAY, PD_BY_RATING, SCORE_BANDS, SBA_SPREAD_CAPS, EXAMPLE, BLANK, clone,
+    money, moneyShort, pct, bps, x2, ncdf, ninv, irbK, irbRetailK, irr, tierOf, creditScore, indexRate, statedRate, sbaGuarPct, sbaCapSpread, sbaGuaranteeFee, sbaReview, graduation, upfrontFees,
     fwdBase, fwd, pathRate, swapRate, schedule, capacity, eligibility, riskRating, lossGivenDefault, bankView, run, levers, offerSchedule};
 });

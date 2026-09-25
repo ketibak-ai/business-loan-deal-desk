@@ -41,6 +41,11 @@ def all_scenarios() -> list[tuple[str, dict]]:
         ("small-sba-weak", _variant("sba7a", loan__amount=250000, biz__revenue=1500000, biz__ebitda=160000,
                                     biz__existingDebt=0, biz__existingDS=0, biz__fico=655, biz__years=1.5,
                                     biz__collType="none", biz__collValue=0)),
+        ("sba-big-graduate", _variant("sba7a", loan__amount=5000000, loan__termY=25, loan__amortY=25,
+                                      biz__revenue=30000000, biz__ebitda=4000000, biz__industry="dist",
+                                      biz__collType="re", biz__collValue=6000000)),
+        ("sba-over-cap-no-sale", _variant("sba7a", loan__amount=300000, loan__spreadBps=500, loan__sbaFeeAuto=False,
+                                          assume__sbaSell=False, biz__industry="rest")),
         ("small-line-tight-grid", _variant("loc", loan__amount=400000, biz__revenue=3000000, biz__ebitda=300000,
                                            biz__existingDebt=200000, biz__existingDS=50000, assume__discretionBps=25)),
     ]

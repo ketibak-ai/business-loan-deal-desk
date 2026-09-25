@@ -1,6 +1,6 @@
 /* Borrower's Deal Desk: page UI. All math lives in engine.js (window.DealEngine). */
 "use strict";
-const {PRODUCTS, INDUSTRIES, COLLATERAL, INDEXES, PREPAY, EXAMPLE, BLANK, clone,
+const {PRODUCTS, INDUSTRIES, COLLATERAL, INDEXES, PREPAY, EXAMPLE, BLANK, clone, sbaReview, graduation,
   money, moneyShort, pct, bps, x2, indexRate, schedule, capacity, eligibility, run, levers, offerSchedule} = DealEngine;
 
 const STORE_KEY = 'borrower-deal-desk-v1';
@@ -38,7 +38,8 @@ const GROUPS=[
     {p:'loan.origPct',label:'Origination fee',type:'num',suf:'%',step:.05},
     {p:'loan.closingCost',label:'Closing costs',type:'money',step:500,hint:'Legal, appraisal, filing'},
     {p:'loan.annualFee',label:'Annual fee',type:'money',step:100,show:s=>!isMca(s)},
-    {p:'loan.sbaFeePct',label:'SBA guarantee fee',type:'num',suf:'%',step:.05,show:s=>/sba/.test(s.loan.product),hint:'Check the current SBA schedule'},
+    {p:'loan.sbaFeeAuto',label:'Use the FY2026 SBA guarantee fee schedule',type:'bool',show:s=>s.loan.product==='sba7a'},
+    {p:'loan.sbaFeePct',label:'SBA guarantee fee',type:'num',suf:'%',step:.05,show:s=>s.loan.product==='sba504'||(s.loan.product==='sba7a'&&!s.loan.sbaFeeAuto),hint:'% of the guaranteed portion (7(a)) or of the loan (504)'},
     {p:'loan.prepay',label:'Prepayment penalty',type:'select',options:Object.entries(PREPAY),show:s=>!isMca(s)},
     {p:'loan.covDSCR',label:'Min. DSCR covenant',type:'num',suf:'x',step:.05,show:s=>!isMca(s)},
   ]},
@@ -54,7 +55,7 @@ const GROUPS=[
     {p:'biz.collType',label:'Collateral you can pledge',type:'select',options:Object.entries(COLLATERAL).map(([k,v])=>[k,v[0]]),wide:true},
     {p:'biz.collValue',label:'Collateral value',type:'money',step:5000},
     {p:'biz.tier',label:'Bank segment',type:'select',wide:true,hint:'How the bank prices you. Auto: small business if revenue ≤ $5M and total debt ≤ $1.5M',
-      options:[['auto','Auto (by size)'],['small','Small business: scorecard and rate grid'],['commercial','Commercial: risk rating and economic capital']]},
+      options:[['auto','Auto (by size)'],['small','Small business: scorecard and rate grid'],['commercial','Middle market: risk rating and economic capital']]},
     {p:'biz.pg',label:'Owner will sign a personal guarantee',type:'bool'},
   ]},
   {title:'What you could bring the bank',lede:'Business besides the loan that lowers the rate the bank needs.',fields:[
@@ -79,6 +80,9 @@ const ASSUME_FIELDS=[
   {p:'assume.capRate',label:'Credit on capital',type:'num',suf:'%',step:.05},
   {p:'assume.smallRW',label:'Small-business risk weight',type:'num',suf:'%',step:5,hint:'US rules 100%; Basel retail SME 75%'},
   {p:'assume.discretionBps',label:'Small-business banker discretion',type:'num',suf:'bps',step:5,hint:'How far a banker can move off the rate grid'},
+  {p:'assume.sbaSell',label:'Bank sells the SBA-guaranteed portion',type:'bool'},
+  {p:'assume.sbaPremiumK',label:'SBA sale premium',type:'num',suf:'%',step:.25,hint:'% of guaranteed amount per 1% of rate over Prime'},
+  {p:'assume.sbaStripBps',label:'Servicing kept on sold portion',type:'num',suf:'bps',step:5,hint:'At least 100 bps when sold at a premium'},
   {p:'assume.minCap',label:'Minimum capital held',type:'num',suf:'%',step:.5,hint:'Regulatory capital per $ of loan'},
 ];
 const tenorLabel=t=>t<1?Math.round(t*12)+' mo':t+' yr';
@@ -311,8 +315,8 @@ function renderBank(R){
   </div></div>`;
   const rr=b.rr,spreadOf=v=>Math.round((v-b.idx)*100);
   $('#view-bank').innerHTML=`
-  <div class="card"><div class="row" style="justify-content:space-between"><h2>The bank's side of your deal</h2><span class="pill info">${b.tier==='small'?'Small business segment':'Commercial segment'}</span></div>
-    <p class="small muted" style="margin:4px 0 10px">${b.tier==='small'?'Priced like a small-business loan: a credit scorecard sets a band with a pooled default rate, capital follows retail rules, and the rate comes from a grid that bankers can adjust only a little.':'Priced like a commercial loan: an analyst-style risk rating, economic capital for this specific deal, and relationship pricing with more room to negotiate.'} ${S.biz.tier==='auto'?'Chosen automatically from your revenue and total debt. You can change it under Your business.':''}</p>
+  <div class="card"><div class="row" style="justify-content:space-between"><h2>The bank's side of your deal</h2><span class="row" style="gap:6px">${L.product==='sba7a'?'<span class="pill info">SBA 7(a)</span>':''}<span class="pill info">${b.tier==='small'?'Small business segment':'Middle market segment'}</span></span></div>
+    <p class="small muted" style="margin:4px 0 10px">${b.tier==='small'?'Priced like a small-business loan: a credit scorecard sets a band with a pooled default rate, capital follows retail rules, and the rate comes from a grid that bankers can adjust only a little.':'Priced like a middle-market (commercial) loan: an analyst-style risk rating, economic capital for this specific deal, and relationship pricing with more room to negotiate.'} ${S.biz.tier==='auto'?'Chosen automatically from your revenue and total debt. You can change it under Your business.':''}</p>
     <p class="lede">Banks price a loan to earn a target return on the capital it uses, usually around ${S.assume.hurdle}%. This estimates the rates the bank is working with. The <b style="color:var(--zone-ink)">striped band</b> is the room between the offer and the lowest rate the bank would likely accept.</p>
     ${ladder}
     <div class="tablewrap"><table><thead><tr><th>Rate</th><th class="r">All-in</th><th class="r">Spread</th><th>What it means</th></tr></thead><tbody>
@@ -322,7 +326,7 @@ function renderBank(R){
       <tr><td>Cost floor</td><td class="r num">${pct(b.costFloor)}</td><td class="r num">${spreadOf(b.costFloor)} bps</td><td class="small">Funding + liquidity + expected loss + servicing. Below this, the bank loses money.</td></tr>
     </tbody></table></div>
     <div class="callout ${b.negotiable>0?'zone':'bad'}" style="margin-top:14px">${b.negotiable>0
-      ?`The bank's estimated return at the offered rate is <b>${pct(b.rarocStand,1)}</b> on the loan alone and <b>${pct(b.rarocRel,1)}</b> counting your deposits and services, against a ${S.assume.hurdle}% hurdle. ${b.tier==='small'&&b.room>b.negotiable?`The bank's model has about ${bps(b.room*100)} of room, but small-business loans are priced from a rate grid and a banker can usually move only about <b>${bps(b.negotiable*100)}</b> without an exception.`:`There is about <b>${bps(b.negotiable*100)}</b> of room.`} A reasonable opening ask is <b>${pct(b.opening)}</b> (${spreadOf(b.opening)} bps). A realistic outcome is around <b>${pct(b.landing)}</b>.`
+      ?`The bank's estimated return at the offered rate is <b>${pct(b.rarocStand,1)}</b> on the loan alone and <b>${pct(b.rarocRel,1)}</b> counting your deposits and services, against a ${S.assume.hurdle}% hurdle. ${b.gridPriced&&b.room>b.negotiable?`The bank's model has about ${bps(b.room*100)} of room, but ${L.product==='sba7a'?"SBA loans are usually priced near the SBA maximum, because the bank's sale premium rises with the rate,":'small-business loans are priced from a rate grid,'} so a banker can usually move only about <b>${bps(b.negotiable*100)}</b> without an exception.`:`There is about <b>${bps(b.negotiable*100)}</b> of room.`} A reasonable opening ask is <b>${pct(b.opening)}</b> (${spreadOf(b.opening)} bps). A realistic outcome is around <b>${pct(b.landing)}</b>.`
       :`The offer is already at or below the estimated walk-away rate (the bank's return is about ${pct(b.rarocRel,1)}). Pushing on rate probably will not work. Focus on fees, covenants, the prepayment penalty and the personal guarantee.`}</div></div>
   <div class="card"><h3>Credit risk: PD, LGD and capital</h3>
     <p class="small muted" style="margin:4px 0 12px">How the bank sizes the risk of this loan. Expected loss is built into the rate every year. Capital is the cushion the bank must hold, and its ${S.assume.hurdle}% return target is measured on it.</p>
@@ -339,6 +343,7 @@ function renderBank(R){
       <tr><td>Regulatory minimum: ${S.assume.minCap}%${b.tier==='small'?` × ${S.assume.smallRW}% risk weight`:''} × EAD</td><td class="r num">${money(b.ecReg)}</td></tr>
       <tr class="hl"><td><b>Capital used for pricing (the higher of the two)</b></td><td class="r num"><b>${money(b.EC)}</b></td></tr>
     </tbody></table></div></div>
+  ${sbaCard(R)}
   <div class="two">
     <div class="card">${b.tier==='small'?`<h3>Your estimated credit score: ${rr.score} (band ${rr.rating})</h3><p class="small muted" style="margin:4px 0 10px">Small-business loans are scored, not individually rated. Band ${rr.rating} carries a pooled default rate of ${pct(rr.pd*100,1)} a year (bands run A to E).`:`<h3>Your estimated risk rating: ${rr.rating} of 10</h3><p class="small muted" style="margin:4px 0 10px">1 is strongest. Implied probability of default: ${pct(rr.pd*100,2)} a year.`} The bank's loss if you default: ${pct(b.lgd*100,0)} of the balance${b.g?`, before the SBA guarantee covers ${pct(b.g*100,0)}`:''}.</p>
       <div class="tablewrap"><table><thead><tr><th>Driver</th><th>You</th><th class="r">Effect</th></tr></thead><tbody>
@@ -361,13 +366,42 @@ function renderBank(R){
   </div>`;
 }
 
+function sbaCard(R){
+  const v=sbaReview(S,R);if(!v)return '';
+  const ok=(good,txt)=>`<span class="pill ${good?'good':'bad'}">${txt}</span>`;
+  return `<div class="card"><h3>SBA 7(a) rules check</h3><p class="small muted" style="margin:4px 0 10px">SBA sets limits a bank must follow, so some terms here aren't negotiable. Figures follow the FY2026 SBA schedule. Check sba.gov, since SBA updates them each year.</p>
+    <div class="tablewrap"><table><tbody>
+    <tr><td>SBA guarantee</td><td class="r num">${pct(v.guaranteed*100,0)} = ${money(v.guaranteedAmt)}</td><td>${ok(!v.overMaxLoan,v.overMaxLoan?'Over $5M limit':'Within limit')}</td></tr>
+    <tr><td>Upfront guarantee fee${v.manufacturerWaiver?' (waived for manufacturers up to $950K)':''}</td><td class="r num">${money(v.fee)} <span class="muted">(${pct(v.feeRate*100,2)} of guaranteed)</span></td><td>${ok(true,'Paid to SBA')}</td></tr>
+    <tr><td>Maximum rate: Prime ${pct(S.mkt.prime)} + ${pct(v.capSpread,1)} for this loan size</td><td class="r num">${pct(v.maxRate)} <span class="muted">vs offered ${pct(v.offered)}</span></td><td>${ok(!v.overCap,v.overCap?'Above SBA maximum':'Within cap')}</td></tr>
+    <tr><td>Prepayment fee (set by SBA)</td><td class="r num">${v.prepayFee?'5% / 3% / 1% in years 1–3':'None'}</td><td class="small muted">${v.prepayFee?'Term is 15+ years; applies if you prepay 25%+':'Terms under 15 years have no SBA fee'}</td></tr>
+    <tr><td>"Credit elsewhere" test</td><td class="r num">${v.creditElsewhere?'May not pass':'Likely passes'}</td><td class="small muted">${v.creditElsewhere?'You look strong enough for a conventional loan. Compare one.':'SBA is meant for borrowers who can\'t get reasonable credit elsewhere'}</td></tr>
+    ${v.sold?`<tr><td>Bank's sale of the guaranteed part</td><td class="r num">≈ ${money(v.salePremium)} premium</td><td class="small muted">plus ${money(v.strip)} a year servicing. This is why banks price SBA loans near the cap</td></tr>`:''}
+    </tbody></table></div>${v.overCap?`<p class="callout bad" style="margin:12px 0 0">The offered rate is above the SBA maximum for this loan size. Ask the lender to correct it, or check that the rate and loan type are entered correctly.</p>`:''}</div>`;
+}
+function gradCard(R){
+  const v=graduation(S,R);if(!v)return '';
+  const head={ready:['good','Ready to graduate'],close:['warn','Getting close'],not_yet:['bad','Not yet']}[v.status];
+  const saving=(v.sba.apr-v.conv.apr)/100*S.loan.amount;
+  return `<div class="row" style="justify-content:space-between"><h2>Ready to graduate from SBA?</h2><span class="pill ${head[0]}">${head[1]} · ${v.met} of 6</span></div>
+    <p class="lede" style="margin:4px 0 12px">As a business grows, it can refinance out of SBA into a conventional ${v.conv.tier==='small'?'small-business':'middle-market'} loan. That means no guarantee fee, fewer SBA rules, and often a lower rate. This compares your SBA loan with an estimated conventional quote.</p>
+    <div class="two"><div class="tablewrap"><table><thead><tr><th></th><th class="r">SBA 7(a)</th><th class="r">Conventional (est.)</th></tr></thead><tbody>
+      <tr><td>Rate</td><td class="r num">${pct(v.sba.rate)}</td><td class="r num">${pct(v.conv.rate)} <span class="muted">SOFR + ${v.conv.spreadBps}</span></td></tr>
+      <tr><td>APR</td><td class="r num">${pct(v.sba.apr)}</td><td class="r num">${pct(v.conv.apr)}</td></tr>
+      <tr><td>Monthly payment</td><td class="r num">${money(v.sba.payment)}</td><td class="r num">${money(v.conv.payment)} <span class="muted">${v.conv.amortY}-yr schedule</span></td></tr>
+      <tr><td>Debt service coverage</td><td class="r num">${x2(v.sba.dscr)}</td><td class="r num">${x2(v.conv.dscr)}</td></tr>
+    </tbody></table></div>
+    <ul style="margin:0;padding-left:0;list-style:none;display:flex;flex-direction:column;gap:6px">${v.criteria.map(c=>`<li class="small"><span class="pill ${c.met?'good':'bad'}">${c.met?'Met':'Not yet'}</span> ${esc(c.label)}</li>`).join('')}</ul></div>
+    <p class="small" style="margin:12px 0 0">${saving>0?`At these estimates, the conventional loan costs about <b>${money(saving)} less a year</b> in rate and fees.`:'At these estimates, the SBA loan is still cheaper, so its longer schedule is doing real work for you.'} The conventional loan uses a shorter schedule, so the payment is ${v.conv.payment>v.sba.payment?'higher':'lower'}. ${v.prepayFeePct[0]?'Your SBA loan is 15+ years, so refinancing in years 1 to 3 triggers the SBA fee of 5%, 3% or 1% of the amount prepaid.':'Your SBA loan is under 15 years, so there is no SBA prepayment fee.'}</p>`;
+}
+
 /* ---------- Negotiate ---------- */
 function renderNegotiateShell(){
   const f=[{p:'lev.moreDeposits',label:'Extra deposits you could move',type:'money',step:10000},
     {p:'lev.moreTreasury',label:'Extra treasury fees per year',type:'money',step:500},
     {p:'lev.competeName',label:'Competing lender',type:'text'},
     {p:'lev.competeRate',label:'Their all-in rate',type:'num',suf:'%',step:.05,hint:'0 if none'}];
-  $('#view-negotiate').innerHTML=`<div class="card" id="neg-top"></div>
+  $('#view-negotiate').innerHTML=`<div class="card" id="neg-top"></div><div class="card" id="neg-grad" hidden></div>
    <div class="card"><h3>What you can bring</h3><p class="small muted" style="margin:4px 0 12px">Change these to see how much each offer is worth to the bank.</p><div class="fields" id="neg-inputs">${f.map(x=>fieldHTML(x,S)).join('')}</div></div>
    <div class="card"><h2>Ways to improve the deal</h2><p class="lede">Each option below is a change to the deal we tested in the bank's model. Dollar amounts assume the bank passes the full savings on to you, so treat them as the most you could get.</p><div class="levers" id="neg-levers"></div></div>
    <div class="card"><div class="row" style="justify-content:space-between"><h2>Your talking points</h2><button class="btn primary" id="copy-brief" type="button">Copy</button></div><p class="lede" style="margin-top:4px">Use these to prepare for the call, or edit them into an email to your banker.</p><pre class="brief" id="brief" tabindex="0"></pre></div>`;
@@ -377,6 +411,7 @@ function renderNegotiate(R){
   if(b.na){$('#neg-top').innerHTML=`<h2>Before you sign an MCA</h2><p class="lede">Your true cost is <b>${pct(sch.apr,0)} APR</b>. The strongest move is to replace it: ask two banks or an SBA lender for a term loan or line of the same size, and compare using the Compare offers tab. If you do take an MCA, ask for a lower factor rate, a longer payback, repayment as a percentage of sales instead of a fixed daily amount, and no fees for paying it off early.</p>`;
     $('#neg-levers').innerHTML='';$('#brief').textContent=briefText(R,[]);return}
   const lv=levers(S,R),yrs=L.termY;
+  const gc=$('#neg-grad'),gh=gradCard(R);gc.hidden=!gh;gc.innerHTML=gh;
   const saveLand=Math.max(0,b.offered-b.landing)/100*sch.avgBal*yrs;
   $('#neg-top').innerHTML=`<h2>${b.negotiable>0?`About ${bps(b.negotiable*100)} of room on rate`:'Rate is near the floor. Negotiate the terms instead.'}</h2>
     <div class="stats" style="margin-top:12px">
@@ -443,6 +478,7 @@ function renderLearn(){
     ['Interest rate vs APR','The rate is what the loan charges on its balance. APR adds fees and shows the true annual cost. Always compare offers by APR.'],
     ['Index + spread','Floating rates are an index (SOFR or Prime) plus a spread in basis points. The index moves with the market. The spread is the part you negotiate.'],
     ['SOFR forward curve','The market\'s expected path for SOFR over the coming years. A floating-rate payment follows that path, so the average rate over the loan can differ from today\'s rate.'],
+    ['SBA graduation','Refinancing an SBA loan into a conventional loan once the business has grown: stronger cash flow, lower leverage and a longer track record. It removes the guarantee fee and SBA rules, and often lowers the rate.'],
     ['Basis point (bp)','One hundredth of a percent. 25 bps = 0.25%. On $1M, 25 bps is $2,500 a year.'],
     ['Amortization vs term','The payment schedule sets your payment. The term sets when the loan is due. If the schedule is longer than the term, a balloon is due at the end.'],
     ['DSCR','Debt service coverage ratio: cash flow divided by all loan payments. Banks usually want 1.25x or more, meaning $1.25 of cash flow for every $1 of payments.'],

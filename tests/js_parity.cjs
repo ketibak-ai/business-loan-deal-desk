@@ -20,11 +20,13 @@ const results = scenarios.map(s => {
           walkaway: R.bank.walkaway, cof: R.bank.cof, tier: R.bank.tier,
           negotiable: R.bank.negotiable, opening: R.bank.opening, landing: R.bank.landing, rarocStand: R.bank.rarocStand, rarocRel: R.bank.rarocRel},
     levers: E.levers(s, R).map(l => [l.id, l.bps, l.dollars]),
+    sba: E.sbaReview(s, R),
+    grad: E.graduation(s, R),
     offers: (s.offers || []).map(o => { const x = E.offerSchedule(s, o); return [x.apr, x.payment, x.totalCost]; }),
   };
   return out;
 });
 
 const constants = {PRODUCTS: E.PRODUCTS, INDUSTRIES: E.INDUSTRIES, COLLATERAL: E.COLLATERAL,
-  PD_BY_RATING: E.PD_BY_RATING, SCORE_BANDS: E.SCORE_BANDS, EXAMPLE: E.EXAMPLE};
+  PD_BY_RATING: E.PD_BY_RATING, SCORE_BANDS: E.SCORE_BANDS, SBA_SPREAD_CAPS: E.SBA_SPREAD_CAPS, EXAMPLE: E.EXAMPLE};
 process.stdout.write(JSON.stringify({results, constants}));

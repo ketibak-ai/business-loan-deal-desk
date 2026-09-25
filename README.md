@@ -5,18 +5,21 @@
 
 **A business loan calculator that shows you the bank's side of the deal.**
 
-A mortgage calculator tells you the payment. This tells a business owner five things:
+A mortgage calculator tells you the payment. This tells a business owner six things:
 
 1. **What the loan really costs:** payment, APR with fees included, balloon, and cost per $1 borrowed. Floating rates follow a **SOFR forward curve**, and a rate shock shows what a 1% move would cost.
 2. **Whether the business can carry it:** debt service coverage, leverage, collateral coverage, and the most you could borrow.
 3. **Which loan types fit:** term, line of credit, equipment, CRE, SBA 7(a), SBA 504, invoice financing, or merchant cash advance.
 4. **How the bank is probably pricing it:** using the model a bank would apply to *your* segment. **Small business** gets a credit scorecard, pooled PD, retail capital and a rate grid with limited banker discretion. **Commercial** gets a risk rating, economic capital and relationship RAROC. It shows the rate that earns the bank's return target on the loan alone and its **walk-away rate** once your deposits and services are counted.
-5. **What to negotiate:** each option (deposits, treasury services, collateral, guarantee, term, fees, prepayment, covenants, competing offer) re-run through the bank's model and valued in dollars. It also writes your talking points.
+5. **SBA 7(a) rules and graduation:** the FY2026 guarantee fee schedule, the SBA spread cap, the prepayment fee, the "credit elsewhere" test, and the bank's secondary-market sale economics. For SBA borrowers, it also checks whether the business is **ready to graduate** to a conventional middle-market loan and estimates the savings.
+6. **What to negotiate:** each option (deposits, treasury services, collateral, guarantee, term, fees, prepayment, covenants, competing offer) re-run through the bank's model and valued in dollars. It also writes your talking points.
 
 It is the mirror image of [commercial-lending-raroc](https://github.com/ketibak-ai/commercial-lending-raroc). That project prices a commercial loan book from the bank's side. This one takes the same RAROC method (12% hurdle, Basel IRB capital, funds transfer pricing, relationship pricing) and hands it to the borrower.
 
 **Live app:** https://ketibak-ai.github.io/business-loan-deal-desk/
 
+> SBA figures follow the FY2026 schedule (loans approved Oct 1, 2025 to Sep 30, 2026) and SOP 50 10; they change each fiscal year, so check sba.gov.
+>
 > For education and planning only. Not a loan offer, credit decision or financial advice. Bank-side figures are estimates from a standard pricing model; every lender's model differs. Market rates and the SOFR curve in the example are illustrative, so enter today's rates.
 
 ---
@@ -63,7 +66,7 @@ flowchart LR
     API --> WEB
 ```
 
-The API, CLI and agent all call one service layer, so they always report the same numbers. The browser runs `engine.js`, a line-for-line port of the Python engine. A test runs both on 27 scenarios covering every product, both bank segments, rate curves and edge cases, and fails if any result differs.
+The API, CLI and agent all call one service layer, so they always report the same numbers. The browser runs `engine.js`, a line-for-line port of the Python engine. A test runs both on 29 scenarios covering every product, both bank segments, the SBA track, rate curves and edge cases, and fails if any result differs.
 
 ## The engine
 
@@ -72,6 +75,7 @@ The API, CLI and agent all call one service layer, so they always report the sam
 | Cost | Amortization with balloon, line of credit (drawn interest + unused fee), MCA (daily remittance). Floating loans reset monthly along a SOFR forward curve (spot SOFR at month 0, then editable points out to 10 years, linear between them); Prime moves with SOFR, and the payment re-amortizes each month. A parallel rate shock stress-tests the path. APR is solved as the IRR of net proceeds against every payment and fee. |
 | Capacity | DSCR, debt/EBITDA and collateral coverage, plus the maximum loan at 1.25x DSCR, 3.5x leverage and the collateral advance rate, and which one binds. Also covenant headroom. |
 | Bank view | **Segment:** small business (revenue ≤ $5M and total debt ≤ $1.5M, or chosen manually) or commercial. **Small business:** a 0–100 scorecard weighted to owner credit maps to bands A–E with pooled PDs, capital is Basel IRB *retail* (or a 100% risk weight × 10%, editable to Basel's 75%), fixed servicing cost is lower (automated underwriting), and negotiable room is capped at banker discretion (50 bps). **Commercial:** risk rating from DSCR, leverage, years, credit score and industry, mapped to a probability of default (PD). LGD from collateral and guarantee. Capital is the higher of Basel IRB corporate (99.9%, with maturity and the SME firm-size adjustment) and a 10% regulatory minimum. The SBA guaranteed share carries 1.6% capital. Required income = hurdle × capital ÷ (1 − tax) − capital credit + servicing + expected loss. Deposits (after run-off) and treasury fees lower the relationship floor. Floating loans (SOFR or Prime) are funded at SOFR. Fixed loans are funded at the matched-maturity swap rate implied by the curve, not the Treasury index they are quoted over. |
+| SBA 7(a) | FY2026 upfront guarantee fee on the guaranteed portion (2% / 3% / 3.5% + 3.75% above $1M guaranteed; waived for manufacturers up to $950K). Spread cap over Prime by loan size (6.5% / 6.0% / 4.5% / 3.0%). 5/3/1% prepayment fee on 15-year-plus loans. If the bank sells the guaranteed share, capital and funding cover only the retained part, and income adds a 1% servicing strip plus a sale premium that rises with the rate. That's why SBA pricing sits near the cap and negotiable room is small. **Graduation** re-prices the loan as a conventional term loan (SOFR, up to 7-year term and 10-year schedule) at the bank's loan-only target and checks six criteria, with time in business and owner credit as gates. |
 | Levers | Each option is applied to a copy of the scenario and re-run. Its value is the drop in the bank's walk-away rate (or the fee saved), in bps and dollars over the term. |
 
 All assumptions are editable in the app and the API (`assume` and `mkt` blocks).
@@ -124,8 +128,8 @@ docker run -p 8000:8000 -e ANTHROPIC_API_KEY=... business-loan-deal-desk
 |---|---|---|
 | Unit tests: annuity formula, APR = rate with no fees, balloon, MCA APR, SOFR curve interpolation, rate shock, Prime tracking SOFR, swap-rate funding, Basel reference point (PD 1%, LGD 45% gives K ≈ 7.4%), floor ordering, hurdle solved exactly, lever direction | `tests/test_engine.py` | pass |
 | API contract, validation, auth, strict JSON; agent loop against a scripted fake Claude client | `tests/test_api_and_agent.py` | pass |
-| Browser engine equals Python engine on 27 scenarios, including both bank segments and flat, shocked and fixed-rate curves | `tests/test_js_parity.py` | pass |
-| Guide retrieval: 24 questions | `evals/retrieval_eval.py` | 100% hit@3, 92% hit@1 |
+| Browser engine equals Python engine on 29 scenarios, including both bank segments, SBA sale and no-sale, graduation, and flat, shocked and fixed-rate curves | `tests/test_js_parity.py` | pass |
+| Guide retrieval: 28 questions | `evals/retrieval_eval.py` | 100% hit@3, 89% hit@1 |
 | Live agent eval: 9 questions, graded on tools called, engine numbers and phrases | `evals/agent_eval.py` | manual workflow (needs an API key) |
 
 CI runs lint, tests and the retrieval eval, builds the Docker image, and smoke-tests the running container. A second workflow deploys the web app to GitHub Pages.

@@ -247,6 +247,73 @@ def test_better_owner_credit_improves_small_business_band():
     assert strong["rr"]["score"] > weak["rr"]["score"] and strong["rr"]["pd"] < weak["rr"]["pd"]
 
 
+# ---- SBA 7(a) track and graduation -------------------------------------------------------------------
+def _sba(amount=1200000, industry="dist", **loan):
+    s = apply_product_defaults(example(), "sba7a")
+    s["loan"]["amount"] = amount
+    s["loan"].update(loan)
+    s["biz"]["industry"] = industry
+    return s
+
+
+@pytest.mark.parametrize("amount,fee", [
+    (120000, 120000 * 0.85 * 0.02),            # <= $150K: 2% of the 85% guaranteed portion
+    (500000, 500000 * 0.75 * 0.03),            # $150K-$700K: 3%
+    (1200000, 1200000 * 0.75 * 0.035),         # > $700K: 3.5% of the first $1M guaranteed
+    (5000000, 138125),                          # SBA's own worked example: $35,000 + $103,125
+])
+def test_sba_fy2026_guarantee_fee(amount, fee):
+    s = _sba(amount)
+    assert engine.sba_guarantee_fee(s, s["loan"]) == pytest.approx(fee)
+
+
+def test_sba_fee_waived_for_small_manufacturers():
+    s = _sba(900000, industry="mfg")
+    assert engine.sba_guarantee_fee(s, s["loan"]) == 0
+    assert engine.sba_guarantee_fee(*(lambda x: (x, x["loan"]))(_sba(1000000, industry="mfg"))) > 0
+
+
+@pytest.mark.parametrize("amount,cap", [(40000, 6.5), (200000, 6.0), (300000, 4.5), (2000000, 3.0)])
+def test_sba_spread_caps(amount, cap):
+    assert engine.sba_cap_spread({"amount": amount}) == cap
+
+
+def test_sba_review_flags_rate_above_cap():
+    s = _sba(300000, spreadBps=500)  # Prime + 5.00% on a $300K loan; cap is Prime + 4.50%
+    v = engine.sba_review(s, engine.run(s))
+    assert v["overCap"] and v["maxRate"] == pytest.approx(s["mkt"]["prime"] + 4.5)
+
+
+def test_selling_guaranteed_part_changes_bank_economics():
+    s = _sba()
+    sold = engine.run(s)["bank"]
+    s["assume"]["sbaSell"] = False
+    kept = engine.run(s)["bank"]
+    assert sold["EC"] < kept["EC"] and sold["salePremium"] > 0 and kept["salePremium"] == 0
+    assert sold["gridPriced"] and sold["negotiable"] * 100 <= s["assume"]["discretionBps"] + 1e-9
+
+
+def test_sale_premium_rises_with_rate():
+    lo, hi = _sba(spreadBps=100), _sba(spreadBps=275)
+    assert engine.run(hi)["bank"]["salePremium"] > engine.run(lo)["bank"]["salePremium"]
+
+
+def test_sba_prepayment_lever_only_for_long_terms():
+    assert "prepay" in {x["id"] for x in engine.levers(_sba(termY=25, amortY=25))}
+    assert "prepay" not in {x["id"] for x in engine.levers(_sba(termY=10, amortY=10))}
+
+
+def test_graduation_strong_vs_weak_borrower():
+    strong = _sba(5000000, termY=25, amortY=25)
+    strong["biz"].update(revenue=30000000, ebitda=4000000, collType="re", collValue=6000000)
+    g = engine.graduation(strong, engine.run(strong))
+    assert g["status"] == "ready" and g["conv"]["tier"] == "commercial" and g["prepayFeePct"] == [5, 3, 1]
+    weak = _sba(250000)
+    weak["biz"].update(revenue=1500000, ebitda=160000, existingDebt=0, existingDS=0, fico=655, years=1.5)
+    assert engine.graduation(weak, engine.run(weak))["status"] == "not_yet"
+    assert engine.graduation(example(), engine.run(example())) is None  # not an SBA loan
+
+
 # ---- engine 4: levers -------------------------------------------------------------------------
 def test_levers_move_the_floor_the_right_way():
     s = example()

@@ -37,6 +37,7 @@ class Loan(_Strict):
     closingCost: float = Field(0, ge=0, le=1e7)
     annualFee: float = Field(0, ge=0, le=1e6)
     sbaFeePct: float = Field(2.5, ge=0, le=10)
+    sbaFeeAuto: bool = Field(True, description="SBA 7(a): use the FY2026 guarantee fee schedule instead of sbaFeePct")
     prepay: Literal["none", "step", "ym"] = "none"
     covDSCR: float = Field(1.25, ge=0, le=5)
 
@@ -88,6 +89,9 @@ class Assumptions(_Strict):
     fixedCostSmall: float = Field(1500, ge=0, le=1e6, description="Fixed yearly cost per small-business loan")
     smallRW: float = Field(100, ge=0, le=150, description="Risk weight for small-business loans, % (US 100)")
     discretionBps: float = Field(50, ge=0, le=500, description="Small-business banker pricing discretion, bps")
+    sbaSell: bool = Field(True, description="Bank sells the SBA-guaranteed portion in the secondary market")
+    sbaPremiumK: float = Field(3.5, ge=0, le=20, description="Sale premium, % of guaranteed amount per 1% over Prime")
+    sbaStripBps: float = Field(100, ge=0, le=500, description="Servicing strip kept on the sold guaranteed portion")
 
 
 class Levers(_Strict):

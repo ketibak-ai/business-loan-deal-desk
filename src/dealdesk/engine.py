@@ -27,6 +27,8 @@ from .config import (
     PG_LGD_BENEFIT,
     PRODUCTS,
     REVOLVER_CCF,
+    SBA_MAX_LOAN,
+    SBA_SPREAD_CAPS,
     SCORE_BANDS,
     SMALL_MAX_EXPOSURE,
     SMALL_MAX_REVENUE,
@@ -199,10 +201,31 @@ def sba_guarantee(loan: dict) -> float:
     return 0.85 if loan["amount"] <= 150000 else 0.75
 
 
-def upfront_fees(loan: dict) -> float:
+def sba_cap_spread(loan: dict) -> float:
+    for limit, cap in SBA_SPREAD_CAPS:
+        if loan["amount"] <= limit:
+            return cap
+    return SBA_SPREAD_CAPS[-1][1]
+
+
+def sba_guarantee_fee(s: dict, loan: dict) -> float:
+    """SBA 7(a) upfront guarantee fee on the guaranteed portion, FY2026 schedule (Oct 1 2025 to Sep 30 2026)."""
+    g_amt = loan["amount"] * sba_guarantee(loan)
+    if not loan.get("sbaFeeAuto"):
+        return g_amt * loan["sbaFeePct"] / 100
+    if s["biz"]["industry"] == "mfg" and loan["amount"] <= 950000:
+        return 0.0  # FY2026 waiver for manufacturers
+    if loan["amount"] <= 150000:
+        return g_amt * 0.02
+    if loan["amount"] <= 700000:
+        return g_amt * 0.03
+    return 0.035 * min(g_amt, 1000000) + 0.0375 * max(0.0, g_amt - 1000000)
+
+
+def upfront_fees(s: dict, loan: dict) -> float:
     f = loan["amount"] * loan["origPct"] / 100 + loan["closingCost"]
     if loan["product"] == "sba7a":
-        f += loan["amount"] * sba_guarantee(loan) * loan["sbaFeePct"] / 100
+        f += sba_guarantee_fee(s, loan)
     if loan["product"] == "sba504":
         f += loan["amount"] * loan["sbaFeePct"] / 100
     return f
@@ -211,7 +234,7 @@ def upfront_fees(loan: dict) -> float:
 def schedule(s: dict, loan: dict | None = None) -> dict:
     loan = loan or s["loan"]
     p, a = PRODUCTS[loan["product"]], max(0.0, loan["amount"])
-    out: dict = {"rows": [], "balloon": 0.0, "upfront": upfront_fees(loan)}
+    out: dict = {"rows": [], "balloon": 0.0, "upfront": upfront_fees(s, loan)}
     upfront = out["upfront"]
 
     if p.get("mca"):
@@ -455,12 +478,16 @@ def bank_view(s: dict, sch: dict) -> dict:
     ead = drawn + REVOLVER_CCF * (loan["amount"] - drawn) if p.get("rev") else loan["amount"]
     g = sba_guarantee(loan)
     m = min(5, max(1, loan["termY"]))
+    # SBA 7(a): the bank usually sells the guaranteed share at a premium and keeps a servicing strip on it
+    sold = loan["product"] == "sba7a" and bool(a.get("sbaSell"))
+    fund = drawn * (1 - g) if sold else drawn
     s5 = min(50, max(5, b["revenue"] / 1e6))
     size_adj = 0.04 * (1 - (s5 - 5) / 45)
     k = irb_retail_k(rr["pd"], lgd) if small else irb_k(rr["pd"], lgd, m, size_adj)
     rw = a["smallRW"] / 100 if small else 1
-    ec_irb = EC_MULTIPLIER * k * ead * (1 - g) + GOV_GUARANTEE_CAPITAL * ead * g
-    ec_reg = a["minCap"] / 100 * rw * ead * (1 - g) + GOV_GUARANTEE_CAPITAL * ead * g
+    gov_cap = 0.0 if sold else GOV_GUARANTEE_CAPITAL * ead * g  # a sold guaranteed share leaves the balance sheet
+    ec_irb = EC_MULTIPLIER * k * ead * (1 - g) + gov_cap
+    ec_reg = a["minCap"] / 100 * rw * ead * (1 - g) + gov_cap
     ec = max(ec_irb, ec_reg)  # banks price to the higher of economic and regulatory capital
     el = rr["pd"] * lgd * ead * (1 - g)
     # scorecard lending is automated, so a small-business loan carries a lower fixed cost than a commercial one
@@ -472,24 +499,38 @@ def bank_view(s: dict, sch: dict) -> dict:
     ts_val = b["treasuryFees"] * TREASURY_MARGIN
     rel_inc = dep_val + ts_val
 
+    strip = g * loan["amount"] * a["sbaStripBps"] / 1e4 if sold else 0.0
+    # sale premium rises with the coupon: sbaPremiumK% of the guaranteed amount per 1% of rate over Prime, over the term
+    prem_k = g * loan["amount"] * a["sbaPremiumK"] / 100 / max(1, loan["termY"]) if sold else 0.0
+    prime = s["mkt"]["prime"]
+    other = fees + strip
+
     def rate_from(nii: float) -> float:
+        if sold:
+            return (nii - other + (cof + liq) / 100 * fund + prem_k * prime) / (fund / 100 + prem_k)
         return cof + liq + (nii - fees) / drawn * 100
 
     standalone = rate_from(nii_req)
     rel_floor = rate_from(nii_req - rel_inc)
-    cost_floor = cof + liq + max(0.0, el + opex - fees) / drawn * 100
+    if sold:
+        cost_floor = max(cof + liq, rate_from(el + opex))
+    else:
+        cost_floor = cof + liq + max(0.0, el + opex - fees) / drawn * 100
     walkaway = max(cost_floor, rel_floor)
     offered = sch["rate"]
 
     def nii_at(rate: float) -> float:
+        if sold:
+            return (rate - cof - liq) / 100 * fund + other + prem_k * (rate - prime)
         return (rate - cof - liq) / 100 * drawn + fees
 
     def raroc(rate: float, rel: bool) -> float:
         return ((nii_at(rate) + (rel_inc if rel else 0.0)) - opex - el + cr * ec) * (1 - t) / ec * 100
 
     room = offered - walkaway
-    # small-business loans are priced off a rate grid: bankers can usually discount only a limited amount
-    if small:
+    # small-business and SBA loans are priced off a grid or near the SBA cap: bankers can discount only a little
+    grid_priced = small or loan["product"] == "sba7a"
+    if grid_priced:
         negotiable = min(max(0.0, room), a["discretionBps"] / 100)
         opening, landing = offered - negotiable, offered - negotiable / 2
     else:
@@ -501,12 +542,75 @@ def bank_view(s: dict, sch: dict) -> dict:
             "standalone": standalone, "relFloor": rel_floor, "costFloor": cost_floor, "walkaway": walkaway,
             "offered": offered, "room": room, "rarocStand": raroc(offered, False),
             "rarocRel": raroc(offered, True), "negotiable": negotiable, "opening": opening, "landing": landing,
+            "gridPriced": grid_priced, "sold": sold, "fund": fund, "strip": strip,
+            "salePremium": g * loan["amount"] * a["sbaPremiumK"] / 100 * (offered - prime) if sold else 0.0,
             "revenueAtOffer": nii_at(offered)}
 
 
 def run(s: dict) -> dict:
     sch = schedule(s)
     return {"sch": sch, "cap": capacity(s, sch), "bank": bank_view(s, sch)}
+
+
+# ---- SBA 7(a) rules check and graduation to a conventional (middle-market) loan --------------------
+def sba_review(s: dict, res: dict) -> dict | None:
+    loan = s["loan"]
+    if loan["product"] != "sba7a":
+        return None
+    g = sba_guarantee(loan)
+    g_amt = loan["amount"] * g
+    cap_spread = sba_cap_spread(loan)
+    max_rate = s["mkt"]["prime"] + cap_spread
+    fee = sba_guarantee_fee(s, loan)
+    fit = next(e for e in eligibility(s, res["cap"]) if e["k"] == "term")
+    return {"guaranteed": g, "guaranteedAmt": g_amt, "fee": fee, "feeRate": fee / g_amt if g_amt > 0 else 0.0,
+            "capSpread": cap_spread, "maxRate": max_rate, "offered": res["sch"]["rate"],
+            "overCap": res["sch"]["rate"] > max_rate + 1e-9, "overMaxLoan": loan["amount"] > SBA_MAX_LOAN,
+            "prepayFee": loan["termY"] >= 15, "creditElsewhere": fit["status"] == "good",
+            "manufacturerWaiver": bool(loan.get("sbaFeeAuto")) and s["biz"]["industry"] == "mfg"
+            and loan["amount"] <= 950000,
+            "sold": res["bank"]["sold"], "salePremium": res["bank"]["salePremium"], "strip": res["bank"]["strip"]}
+
+
+def graduation(s: dict, res: dict) -> dict | None:
+    """Would this SBA borrower qualify for a conventional loan? Criteria plus a side-by-side estimate."""
+    loan, b = s["loan"], s["biz"]
+    if loan["product"] != "sba7a":
+        return None
+    t = copy.deepcopy(s)
+    t["loan"].update(product="term", index="sofr", termY=min(loan["termY"], 7), amortY=min(loan["amortY"], 10),
+                     origPct=1, spreadBps=300)
+    t["biz"]["tier"] = "commercial" if b["revenue"] > SMALL_MAX_REVENUE else "auto"
+    r = run(t)
+    for _ in range(2):
+        t["loan"]["spreadBps"] = jround((r["bank"]["standalone"] - r["bank"]["idx"]) * 100)
+        r = run(t)
+    checks = [
+        ("3 or more years in business", b["years"] >= 3),
+        ("EBITDA of $1M or more", b["ebitda"] >= 1000000),
+        ("Debt service coverage of 1.35x or more on conventional terms", r["cap"]["dscr"] >= 1.35),
+        ("Debt to EBITDA of 3.0x or less", r["cap"]["lev"] <= 3),
+        ("Owner credit score of 700 or more", b["fico"] >= 700),
+        ("Collateral covers 80% of the loan, or coverage of 1.75x or more",
+         r["cap"]["collCov"] >= 0.8 or r["cap"]["dscr"] >= 1.75),
+    ]
+    criteria = [{"label": lab, "met": bool(ok)} for lab, ok in checks]
+    # time in business and owner credit are gates: lenders rarely refinance out of SBA without both
+    met = sum(c["met"] for c in criteria)
+    gates = (criteria[0]["met"], criteria[4]["met"])
+    if met >= 5 and all(gates):
+        status = "ready"
+    elif met >= 3 and any(gates):
+        status = "close"
+    else:
+        status = "not_yet"
+    return {"status": status, "met": met, "criteria": criteria,
+            "conv": {"rate": r["sch"]["rate"], "spreadBps": t["loan"]["spreadBps"], "apr": r["sch"]["apr"],
+                     "payment": r["sch"]["payment"], "dscr": r["cap"]["dscr"], "termY": t["loan"]["termY"],
+                     "amortY": t["loan"]["amortY"], "tier": r["bank"]["tier"]},
+            "sba": {"rate": res["sch"]["rate"], "apr": res["sch"]["apr"], "payment": res["sch"]["payment"],
+                    "dscr": res["cap"]["dscr"]},
+            "prepayFeePct": [5, 3, 1] if loan["termY"] >= 15 else [0, 0, 0]}
 
 
 # ---- engine 4: negotiation levers -----------------------------------------------------------
@@ -524,7 +628,7 @@ def levers(s: dict, res: dict | None = None) -> list[dict]:
         return max(0.0, d) / 1e4 * avg_bal * yrs
 
     # on the small-business rate grid a concession is limited by the banker's discretion
-    cap_bps = s["assume"]["discretionBps"] if base["tier"] == "small" else math.inf
+    cap_bps = s["assume"]["discretionBps"] if base["gridPriced"] else math.inf
 
     def try_mod(fn) -> tuple[dict, float]:
         t = copy.deepcopy(s)
@@ -617,7 +721,15 @@ def levers(s: dict, res: dict | None = None) -> list[dict]:
                     "why": f"It saves {money(saved)} upfront and lowers your APR from {pct(res['sch']['apr'])} "
                            f"to {pct(sch2['apr'])}. Banks often give on fees before they give on rate.",
                     "bps": (res["sch"]["apr"] - sch2["apr"]) * 100, "dollars": saved})
-    if loan["prepay"] != "none":
+    if loan["product"] == "sba7a":
+        if loan["termY"] >= 15:
+            out.append({"id": "prepay", "kind": "terms", "title": "Plan around the SBA prepayment fee",
+                        "ask": "The SBA sets this fee and a bank can't waive it. Time any refinance or large paydown "
+                               "for after year 3.",
+                        "why": "On SBA 7(a) loans of 15 years or longer, prepaying 25% or more in the first 3 years "
+                               "costs 5%, 3% or 1% of the amount prepaid. After year 3 there is no SBA fee.",
+                        "bps": 0.0, "dollars": 0.0})
+    elif loan["prepay"] != "none":
         out.append({"id": "prepay", "kind": "terms", "title": "Remove or soften the prepayment penalty",
                     "ask": "Ask to replace yield maintenance with a step-down (3-2-1%), or none after year 2."
                     if loan["prepay"] == "ym" else "Ask for no penalty when you repay from your own cash "

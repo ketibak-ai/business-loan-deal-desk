@@ -28,10 +28,27 @@ def _approx(v):
     return None if v is None or not engine.isfinite(v) else pytest.approx(v, rel=1e-9, abs=1e-6)
 
 
+def _same(got, want, path):
+    """Deep compare a JS result with the Python one: numbers approximately, everything else exactly."""
+    if isinstance(want, dict):
+        assert isinstance(got, dict) and set(got) == set(want), path
+        for k in want:
+            _same(got[k], want[k], f"{path}.{k}")
+    elif isinstance(want, list | tuple):
+        assert len(got) == len(want), path
+        for i, (g, w) in enumerate(zip(got, want, strict=True)):
+            _same(g, w, f"{path}[{i}]")
+    elif isinstance(want, bool) or want is None or isinstance(want, str):
+        assert got == want, path
+    else:
+        assert got == _approx(want), path
+
+
 def test_reference_data_matches(js):
     c = js["constants"]
     assert c["PD_BY_RATING"] == config.PD_BY_RATING
     assert c["SCORE_BANDS"] == config.SCORE_BANDS
+    assert c["SBA_SPREAD_CAPS"] == config.SBA_SPREAD_CAPS
     assert c["EXAMPLE"] == config.EXAMPLE
     assert {k: list(v) for k, v in config.INDUSTRIES.items()} == c["INDUSTRIES"]
     assert {k: list(v) for k, v in config.COLLATERAL.items()} == c["COLLATERAL"]
@@ -66,6 +83,8 @@ def test_scenario_matches(js, i):
     assert [x[0] for x in got["levers"]] == [x["id"] for x in lv]
     for (_, bps, dollars), want in zip(got["levers"], lv, strict=True):
         assert bps == _approx(want["bps"]) and dollars == _approx(want["dollars"])
+    _same(got["sba"], engine.sba_review(s, r), "sba")
+    _same(got["grad"], engine.graduation(s, r), "grad")
     for (apr, pay, total), o in zip(got["offers"], s["offers"], strict=True):
         sch = engine.offer_schedule(s, o)
         assert (apr, pay, total) == (_approx(sch["apr"]), _approx(sch["payment"]), _approx(sch["totalCost"]))
