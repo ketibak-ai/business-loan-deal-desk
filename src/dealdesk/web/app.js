@@ -324,22 +324,37 @@ function renderBank(R){
     <div class="callout ${b.negotiable>0?'zone':'bad'}" style="margin-top:14px">${b.negotiable>0
       ?`The bank's estimated return at the offered rate is <b>${pct(b.rarocStand,1)}</b> on the loan alone and <b>${pct(b.rarocRel,1)}</b> counting your deposits and services, against a ${S.assume.hurdle}% hurdle. ${b.tier==='small'&&b.room>b.negotiable?`The bank's model has about ${bps(b.room*100)} of room, but small-business loans are priced from a rate grid and a banker can usually move only about <b>${bps(b.negotiable*100)}</b> without an exception.`:`There is about <b>${bps(b.negotiable*100)}</b> of room.`} A reasonable opening ask is <b>${pct(b.opening)}</b> (${spreadOf(b.opening)} bps). A realistic outcome is around <b>${pct(b.landing)}</b>.`
       :`The offer is already at or below the estimated walk-away rate (the bank's return is about ${pct(b.rarocRel,1)}). Pushing on rate probably will not work. Focus on fees, covenants, the prepayment penalty and the personal guarantee.`}</div></div>
+  <div class="card"><h3>Credit risk: PD, LGD and capital</h3>
+    <p class="small muted" style="margin:4px 0 12px">How the bank sizes the risk of this loan. Expected loss is built into the rate every year. Capital is the cushion the bank must hold, and its ${S.assume.hurdle}% return target is measured on it.</p>
+    <div class="stats">
+      <div class="stat"><div class="lab">PD · probability of default</div><div class="val">${pct(rr.pd*100,2)}</div><div class="sub">${b.tier==='small'?`pooled rate for band ${rr.rating}`:`from risk rating ${rr.rating} of 10`}, per year</div></div>
+      <div class="stat"><div class="lab">LGD · loss given default</div><div class="val">${pct(b.lgd*100,0)}</div><div class="sub">${L.product==='sba504'?'SBA 504 first-lien structure':S.biz.collType==='none'?'unsecured':`collateral covers ${pct(Math.min(1,b.cap.collCov)*100,0)} of the loan`}${S.biz.pg&&L.product!=='sba504'?'; guarantee trims 3 pts':''}</div></div>
+      <div class="stat"><div class="lab">EAD · exposure at default</div><div class="val">${money(b.ead)}</div><div class="sub">${isRev(S)?'drawn + 75% of the unused line':'loan balance'}</div></div>
+      <div class="stat"><div class="lab">Expected loss · PD × LGD × EAD</div><div class="val">${money(b.EL)}</div><div class="sub">${pct(b.EL/b.ead*100,2)} of EAD a year${b.g?`, on the ${pct((1-b.g)*100,0)} not guaranteed by SBA`:''}</div></div>
+      <div class="stat"><div class="lab">Capital held (ECAP)</div><div class="val">${money(b.EC)}</div><div class="sub">${pct(b.EC/b.ead*100,1)} of EAD, ${b.ecReg>=b.ecIRB?'regulatory minimum binds':'risk model binds'}</div></div>
+    </div>
+    <div class="tablewrap" style="margin-top:12px"><table><tbody>
+      <tr><td>${b.tier==='small'?'Basel IRB retail':'Basel IRB corporate'} capital charge K (99.9%)</td><td class="r num">${pct(b.K*100,2)} of EAD</td></tr>
+      <tr><td>Economic capital: 1.06 × K × EAD${b.g?'; SBA-guaranteed share at 1.6%':''}</td><td class="r num">${money(b.ecIRB)}</td></tr>
+      <tr><td>Regulatory minimum: ${S.assume.minCap}%${b.tier==='small'?` × ${S.assume.smallRW}% risk weight`:''} × EAD</td><td class="r num">${money(b.ecReg)}</td></tr>
+      <tr class="hl"><td><b>Capital used for pricing (the higher of the two)</b></td><td class="r num"><b>${money(b.EC)}</b></td></tr>
+    </tbody></table></div></div>
   <div class="two">
     <div class="card">${b.tier==='small'?`<h3>Your estimated credit score: ${rr.score} (band ${rr.rating})</h3><p class="small muted" style="margin:4px 0 10px">Small-business loans are scored, not individually rated. Band ${rr.rating} carries a pooled default rate of ${pct(rr.pd*100,1)} a year (bands run A to E).`:`<h3>Your estimated risk rating: ${rr.rating} of 10</h3><p class="small muted" style="margin:4px 0 10px">1 is strongest. Implied probability of default: ${pct(rr.pd*100,2)} a year.`} The bank's loss if you default: ${pct(b.lgd*100,0)} of the balance${b.g?`, before the SBA guarantee covers ${pct(b.g*100,0)}`:''}.</p>
-      <table><thead><tr><th>Driver</th><th>You</th><th class="r">Effect</th></tr></thead><tbody>
+      <div class="tablewrap"><table><thead><tr><th>Driver</th><th>You</th><th class="r">Effect</th></tr></thead><tbody>
       ${rr.drivers.map(d=>`<tr><td>${d.name}</td><td class="num">${esc(d.val)}</td><td class="r"><span class="pill ${(b.tier==='small'?-d.delta:d.delta)<0?'good':(b.tier==='small'?-d.delta:d.delta)>0?'bad':'info'}">${(b.tier==='small'?-d.delta:d.delta)<0?'Helps':(b.tier==='small'?-d.delta:d.delta)>0?'Hurts':'Neutral'}</span></td></tr>`).join('')}
-      </tbody></table></div>
+      </tbody></table></div></div>
     <div class="card"><h3>The bank's numbers at the offered rate (year 1)</h3>
-      <table><tbody>
+      <div class="tablewrap"><table><tbody>
       <tr><td>Funds used (drawn)</td><td class="r num">${money(b.drawn)}</td></tr>
       <tr><td>Bank's cost of funds</td><td class="r num">${pct(b.cof)} + ${bps(b.liq*100)}</td></tr>
       <tr><td>Revenue from loan (margin + fees)</td><td class="r num">${money(b.revenueAtOffer)}</td></tr>
-      <tr><td>Expected loss</td><td class="r num">−${money(b.EL)}</td></tr>
+      <tr><td>Expected loss (PD × LGD × EAD)</td><td class="r num">−${money(b.EL)}</td></tr>
       <tr><td>Servicing cost</td><td class="r num">−${money(b.opex)}</td></tr>
       <tr><td>Value of your deposits and services</td><td class="r num">+${money(b.relInc)}</td></tr>
-      <tr><td>Capital the bank must hold</td><td class="r num">${money(b.EC)} <span class="muted">(${pct(b.EC/b.ead*100,1)}, ${b.ecReg>=b.ecIRB?'regulatory minimum':'risk model'})</span></td></tr>
+      <tr><td>Capital held (ECAP)</td><td class="r num">${money(b.EC)} <span class="muted">(${pct(b.EC/b.ead*100,1)}, ${b.ecReg>=b.ecIRB?'regulatory minimum':'risk model'})</span></td></tr>
       <tr class="hl"><td><b>Return on that capital</b></td><td class="r num"><b>${pct(b.rarocRel,1)}</b> vs ${S.assume.hurdle}%</td></tr>
-      </tbody></table>
+      </tbody></table></div>
       ${L.index==='ust5'&&S.mkt.useCurve?`<p class="small" style="margin:10px 0 0"><b>About fixed rates:</b> the bank funds a fixed-rate loan at the swap rate for its term, which the SOFR curve puts at ${pct(b.cof)} for ${L.termY} years, not at the ${pct(S.mkt.ust5)} Treasury index your rate is quoted over.</p>`:''}
       ${L.index==='prime'?`<p class="small" style="margin:10px 0 0"><b>About Prime:</b> Prime is usually about ${pct(S.mkt.prime-S.mkt.sofr,1)} above SOFR, which is closer to what money costs the bank. So "Prime + ${(L.spreadBps/100).toFixed(2)}%" is really about SOFR + ${pct(S.mkt.prime-S.mkt.sofr+L.spreadBps/100,2)}. Ask for a SOFR-based quote to compare.</p>`:''}
     </div>

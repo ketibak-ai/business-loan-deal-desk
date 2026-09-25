@@ -39,6 +39,9 @@ def test_analyze_example_round_trip():
     assert body["bank_view"]["rates_pct"]["walk_away"] < body["bank_view"]["rates_pct"]["offered"]
     assert body["cost"]["apr_pct"] > body["cost"]["stated_rate_pct"]
     assert "TALKING POINTS" in body["talking_points"]
+    cr = body["bank_view"]["credit_risk"]
+    assert cr["expected_loss"] == pytest.approx(cr["pd_pct"] / 100 * cr["lgd_pct"] / 100 * cr["ead"], rel=1e-3)
+    assert cr["capital_used"] == pytest.approx(max(cr["economic_capital"], cr["regulatory_capital"]), rel=1e-3)
 
 
 def test_small_business_segment_in_api():

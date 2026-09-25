@@ -120,6 +120,13 @@ def _bank(b: dict) -> dict:
                    "Commercial: individual risk rating, economic capital (Basel IRB corporate with maturity and "
                    "small-firm adjustments), deal-by-deal relationship RAROC"),
         "credit_score": b["rr"].get("score"),
+        "credit_risk": {
+            "pd_pct": b["rr"]["pd"] * 100, "lgd_pct": b["lgd"] * 100, "ead": b["ead"],
+            "expected_loss": b["EL"], "expected_loss_pct_of_ead": b["EL"] / b["ead"] * 100,
+            "capital_k_pct": b["K"] * 100, "k_formula": "Basel IRB retail" if small else "Basel IRB corporate",
+            "economic_capital": b["ecIRB"], "regulatory_capital": b["ecReg"], "capital_used": b["EC"],
+            "sba_guaranteed_pct": b["g"] * 100,
+        },
         "risk_rating": b["rr"]["rating"], "probability_of_default_pct": b["rr"]["pd"] * 100,
         "rating_drivers": b["rr"]["drivers"], "loss_given_default_pct": b["lgd"] * 100,
         "sba_guaranteed_pct": b["g"] * 100,
